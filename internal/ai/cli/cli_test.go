@@ -179,6 +179,27 @@ func TestScopedSpecsDoNotAdvertiseExecutionAsReadOnly(t *testing.T) {
 	}
 }
 
+func TestOpenCodeCapabilityProbeRequiresAppliedPermission(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		raw  string
+		want bool
+	}{
+		{"string deny", `{"permission":"deny"}`, true},
+		{"map wildcard deny", `{"permission":{"*":"deny"}}`, true},
+		{"string allow", `{"permission":"allow"}`, false},
+		{"map wildcard allow", `{"permission":{"*":"allow"}}`, false},
+		{"missing", `{}`, false},
+		{"invalid", `not json`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := openCodeConfigDenied([]byte(tc.raw)); got != tc.want {
+				t.Fatalf("openCodeConfigDenied = %t, want %t", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestCompatibilityRejectsUntestedCodexExecutionControls(t *testing.T) {
 	for _, tc := range []struct {
 		kind, version string

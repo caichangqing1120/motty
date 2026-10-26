@@ -5,6 +5,7 @@ import (
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/ui"
 	"motty/internal/ai/agent"
+	"motty/internal/ai/cli"
 	"motty/internal/ai/store"
 	"motty/internal/localshell"
 	"os"
@@ -242,4 +243,76 @@ func TestAuthTimeoutStopsProcessWithoutUIWake(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 	t.Fatal("auth timeout waited for the UI inbox before stopping the process")
+}
+
+func TestCLILoginAnswersTerminalQueries(t *testing.T) {
+	w := newSettingsWorld(t, newLister())
+	s := w.state
+	path, _ := os.Executable()
+	db, _ := s.aiStore()
+	if err := db.SaveProvider(store.Provider{ID: "auth", Name: "Auth", Kind: "codex-cli", CLIPath: path, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	s.reloadAI()
+	shell := &fakeShell{done: make(chan struct{})}
+	s.options.CLIAuthStart = func(localshell.Config) (Shell, error) { return shell, nil }
+	s.aiStartCLILogin("auth", false)
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		s.Wake()
+		if s.ai.login != nil && s.ai.login.term.shell != nil {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if s.ai.login == nil || s.ai.login.term.shell == nil {
+		t.Fatal("login did not start")
+	}
+	shell.say("\x1b[c")
+	deadline = time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		s.Wake()
+		if shell.typed() != "" {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if got := shell.typed(); got == "" || got == "\x1b[c" {
+		t.Fatalf("login terminal did not answer DA1: %q", got)
+	}
+	s.aiStopCLILogin()
+}
+
+func TestCLIAuthActionsStayReachableInNarrowSettings(t *testing.T) {
+	w := newSettingsWorld(t, newLister())
+	s := w.state
+	path, _ := os.Executable()
+	db, _ := s.aiStore()
+	if err := db.SaveProvider(store.Provider{ID: "auth", Name: "Auth", Kind: "codex-cli", CLIPath: path, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	s.reloadAI()
+	s.aiSelectProvider(0)
+	for _, width := range []float32{800, 900, 1000, 1200} {
+		var canvas ui.Canvas
+		s.Paint(&canvas, ui.Size{Width: width, Height: 900})
+		for _, id := range []ui.ID{hitAICLIRecheck, hitAICLIDevice, hitAICLILogin} {
+			hit, ok := hitByID(&canvas, id)
+			if !ok || hit.Bounds.Width < 20 || hit.Bounds.X < 0 || hit.Bounds.X+hit.Bounds.Width > width {
+				t.Fatalf("width %.0f: auth control %d missing or clipped: %+v, %t", width, id, hit.Bounds, ok)
+			}
+		}
+	}
+}
+
+func TestResetCLIAuthClearsACheckingState(t *testing.T) {
+	w := newSettingsWorld(t, newLister())
+	s := w.state
+	canceled := false
+	s.ai.authChecks = map[string]*aiCLIAuthCheck{"auth": &aiCLIAuthCheck{cancel: func() { canceled = true }}}
+	s.aiSetAuth("auth", cli.AuthChecking)
+	s.aiResetCLIAuth("auth")
+	if !canceled || s.ai.auth["auth"] != cli.AuthUnknown || s.ai.authChecks["auth"] != nil {
+		t.Fatalf("reset auth canceled=%t state=%q checks=%v", canceled, s.ai.auth["auth"], s.ai.authChecks)
+	}
 }

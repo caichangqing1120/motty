@@ -73,6 +73,10 @@ func (state *State) aiChoosePreset(index int) {
 	cfg.baseURL.SetSelection(text.Range{Start: 0, End: cfg.baseURL.RuneCount()})
 	cfg.baseURL.Insert(preset.address(state.language))
 	if store.IsCLIKind(preset.kind) {
+		if cfg.preset != index {
+			// A path belongs to one CLI executable, not to the preset slot.
+			cfg.cliPath = text.Editor{}
+		}
 		cfg.apiKey = text.Editor{}
 		cfg.hadKey = false
 	}

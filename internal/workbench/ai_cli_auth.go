@@ -47,6 +47,18 @@ func (s *State) aiSetAuth(id string, status cli.AuthState) {
 	}
 	s.ai.auth[id] = status
 }
+
+// aiResetCLIAuth cancels an in-flight status check and clears the cached status
+// of the old executable. A path edit must not leave "checking" behind, because
+// that state disables the Check status action.
+func (s *State) aiResetCLIAuth(id string) {
+	if check := s.ai.authChecks[id]; check != nil {
+		check.cancel()
+		delete(s.ai.authChecks, id)
+	}
+	s.aiSetAuth(id, cli.AuthUnknown)
+}
+
 func (s *State) aiCheckCLIAuth(p store.Provider) {
 	if !store.IsCLIKind(p.Kind) {
 		return
@@ -70,7 +82,16 @@ func (s *State) aiCheckCLIAuth(p store.Provider) {
 			delete(s.ai.authChecks, p.ID)
 			cancel()
 			current, ok := s.aiProviderByID(p.ID)
-			if !ok || current.Kind != p.Kind || current.CLIPath != p.CLIPath {
+			if !ok {
+				return
+			}
+			if current.Kind != p.Kind || current.CLIPath != p.CLIPath {
+				// The executable changed while this check ran. If another check
+				// has already started, leave its Checking state alone; otherwise
+				// clear the stale state so the action becomes reachable again.
+				if s.ai.authChecks[p.ID] == nil {
+					s.aiSetAuth(p.ID, cli.AuthUnknown)
+				}
 				return
 			}
 			s.aiSetAuth(p.ID, status)
@@ -97,11 +118,12 @@ func (s *State) aiStartCLILogin(id string, device bool) {
 	login.timer = time.AfterFunc(15*time.Minute, func() {
 		cancel()
 		s.aiPost(func(s *State) {
-			if s.ai.login == login {
-				s.aiStopCLILogin()
-				s.aiSetAuth(id, cli.AuthFailed)
-				s.ai.cfg.notice = s.messages.AISettings.CLIAuthTimeout
+			if s.ai.login != login || login.finished {
+				return
 			}
+			s.aiStopCLILogin()
+			s.aiSetAuth(id, cli.AuthFailed)
+			s.ai.cfg.notice = s.messages.AISettings.CLIAuthTimeout
 		})
 	})
 	start := s.options.CLIAuthStart
@@ -164,6 +186,15 @@ func (s *State) aiStartCLILogin(id string, device bool) {
 			login.dir, login.release = dir, release
 			login.cleanup = cleanup
 			login.term.shell = shell
+			// A login TUI may ask the terminal for DA1, cursor-position or color
+			// reports. The normal terminal answers them; this private terminal must
+			// too, or the provider waits forever for a reply. Do not wire the
+			// clipboard or notification callbacks into a sensitive terminal.
+			login.term.screen.SetReply(func(reply []byte) {
+				if s.ai.login == login && !login.finished {
+					shell.Write(reply)
+				}
+			})
 			s.aiPumpCLILogin()
 		})
 		if !accepted {
@@ -331,7 +362,11 @@ func (s *State) paintAICLIAuth(page *settingsPage) {
 	}
 	page.group(m.CLIAuthTitle, func() {
 		page.aiFrame(settingsRowHeight, p.Name, status, s.pal.muted, func() {
-			page.f.Row().Gap(8).Children(func() {
+			// The authentication controls are actions, not flexible labels. If
+			// they shrink with the card, the primary Sign in button disappears on
+			// ordinary narrow windows; keep their intrinsic width and let the
+			// status words wrap instead.
+			page.f.Row().Gap(8).Shrink(0).Children(func() {
 				page.button(hitAICLIRecheck, m.CLIAuthRecheck, aiButtonOutline, s.ai.auth[p.ID] == cli.AuthChecking)
 				if p.Kind == store.KindCodexCLI {
 					page.button(hitAICLIDevice, m.CLIAuthDevice, aiButtonOutline, s.ai.login != nil)

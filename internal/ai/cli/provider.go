@@ -128,7 +128,45 @@ func probe(ctx context.Context, kind string, c command) error {
 			return errors.New("cli: unsupported_version")
 		}
 	}
+	if kind == store.KindOpenCodeCLI {
+		config := c
+		config.args = append(append([]string{}, c.args...), "debug", "config", "--pure")
+		config.env = append(append([]string{}, c.env...),
+			"OPENCODE_DISABLE_PROJECT_CONFIG=1",
+			"OPENCODE_DB=:memory:",
+			`OPENCODE_CONFIG_CONTENT={"permission":"deny"}`,
+		)
+		raw, err := capture(ctx, config, 4<<20)
+		if err != nil {
+			return errors.New("cli: unsafe_config_unverifiable")
+		}
+		if !openCodeConfigDenied(raw) {
+			return errors.New("cli: unsafe_config_unverifiable")
+		}
+	}
 	return nil
+}
+
+// openCodeConfigDenied proves the running OpenCode build actually applies the
+// inline config that carries its execution policy. Accepting only --pure is not
+// enough: the permission surface has changed within OpenCode 1.x.
+func openCodeConfigDenied(raw []byte) bool {
+	var resolved struct {
+		Permission json.RawMessage `json:"permission"`
+	}
+	if json.Unmarshal(raw, &resolved) != nil || len(resolved.Permission) == 0 {
+		return false
+	}
+	var global string
+	if json.Unmarshal(resolved.Permission, &global) == nil {
+		return global == "deny"
+	}
+	var rules map[string]json.RawMessage
+	if json.Unmarshal(resolved.Permission, &rules) != nil {
+		return false
+	}
+	var wildcard string
+	return json.Unmarshal(rules["*"], &wildcard) == nil && wildcard == "deny"
 }
 
 var cliVersionPattern = regexp.MustCompile(`\b([0-9]+)\.([0-9]+)\.([0-9]+)\b`)

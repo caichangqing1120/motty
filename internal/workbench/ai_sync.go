@@ -133,15 +133,21 @@ func (state *State) importAIProviderCollections(http, cli *[]savedAIProvider) {
 	state.pauseSave--
 }
 
-// adoptRecordedProviders restores providers from the records when the
-// assistant's database has none: a database that was lost or set aside must not
-// make the providers look deleted to every other computer.
+// adoptRecordedProviders restores recorded providers the assistant's database
+// is missing. A database that was lost or set aside must not make the providers
+// look deleted to every other computer, and a database that still holds another
+// provider (for example HTTP) must not hide a recorded CLI provider.
 func (state *State) adoptRecordedProviders(db *store.Store) {
 	if state.configBase == nil {
 		return
 	}
-	if current, err := db.Providers(); err != nil || len(current) > 0 {
+	current, err := db.Providers()
+	if err != nil {
 		return
+	}
+	present := make(map[string]bool, len(current))
+	for _, provider := range current {
+		present[provider.ID] = true
 	}
 	var recorded []savedAIProvider
 	for key, payload := range state.configBase.payloads {
@@ -154,13 +160,11 @@ func (state *State) adoptRecordedProviders(db *store.Store) {
 			recorded = append(recorded, entry)
 		}
 	}
-	if len(recorded) == 0 {
-		return
-	}
 	for _, entry := range recorded {
-		if !store.ValidProviderKind(entry.Kind) {
+		if entry.ID == "" || present[entry.ID] || !store.ValidProviderKind(entry.Kind) {
 			continue
 		}
+		present[entry.ID] = true
 		_ = db.SaveProvider(store.Provider{ID: entry.ID, Name: entry.Name, Kind: entry.Kind, BaseURL: entry.BaseURL, HasKey: entry.HasKey, Enabled: entry.Enabled})
 		models := make([]store.Model, 0, len(entry.Models))
 		for _, model := range entry.Models {

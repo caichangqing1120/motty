@@ -664,6 +664,7 @@ func (state *State) aiSubmitProvider() {
 	}
 	// A new provider, or one reached differently, has models nobody has listed yet.
 	refetch := cfg.editID == ""
+	resetAuth := false
 	if cfg.editID == "" {
 		provider.ID = newProviderID()
 	} else if old, ok := state.aiProviderByID(cfg.editID); ok {
@@ -672,6 +673,7 @@ func (state *State) aiSubmitProvider() {
 			provider.APIKey, provider.HasKey = old.APIKey, old.HasKey // the field is left empty to keep the key
 		}
 		refetch = provider.Kind != old.Kind || provider.BaseURL != old.BaseURL || provider.APIKey != old.APIKey || provider.CLIPath != old.CLIPath
+		resetAuth = cliProvider && (provider.Kind != old.Kind || provider.CLIPath != old.CLIPath)
 	}
 	db, err := state.aiStore()
 	if err == nil && key != "" {
@@ -689,6 +691,9 @@ func (state *State) aiSubmitProvider() {
 	}
 	if cfg.editID == "" {
 		cfg.selected, cfg.page = provider.ID, 0
+	}
+	if resetAuth {
+		state.aiResetCLIAuth(provider.ID)
 	}
 	state.aiCloseDialog()
 	state.aiWrote()
@@ -722,7 +727,10 @@ func (state *State) aiDeleteProvider(id string) {
 	cfg := &state.ai.cfg
 	db, err := state.aiStore()
 	if err == nil {
-		if opened := state.secrets.vault; opened != nil {
+		// CLI providers have no API key. Asking for the master password just to
+		// delete one is both surprising and unnecessary.
+		provider, hasProvider := state.aiProviderByID(id)
+		if opened := state.secrets.vault; hasProvider && provider.HasKey && opened != nil {
 			// The key goes first, so a failure leaves the provider whole. A locked
 			// vault is opened and the deletion tried again.
 			switch err = opened.Delete(aiKeySecretName(id)); {

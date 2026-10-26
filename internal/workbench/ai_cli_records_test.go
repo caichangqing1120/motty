@@ -134,6 +134,35 @@ func TestCLIProviderFirstRestoreAndLostDatabaseAdoption(t *testing.T) {
 	}
 }
 
+func TestOpeningSettingsKeepsCLIRecordBesideHTTPProvider(t *testing.T) {
+	w := newSettingsWorld(t, newLister())
+	s := w.state
+	addCLIRecordFixture(t, s)
+	db, err := s.aiStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.DeleteProvider("cli"); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	// w.open clicks Settings, which opens the assistant database and saves the
+	// records. The HTTP row must not stop the missing CLI record from being
+	// adopted, and the save must not tombstone it.
+	restored := w.open(t)
+	p, ok := restored.aiProviderByID("cli")
+	if !ok || p.Kind != "codex-cli" {
+		t.Fatalf("CLI provider was not adopted beside HTTP: %+v, %t", p, ok)
+	}
+	if !restored.recordedProviderIDs(kindAICLIProvider)["cli"] {
+		t.Fatal("opening Settings deleted the CLI record")
+	}
+	if _, ok := restored.aiProviderByID("http"); !ok {
+		t.Fatal("HTTP provider disappeared")
+	}
+}
+
 func TestLegacyBackupWithoutCLICollectionKeepsLocalCLI(t *testing.T) {
 	w := newSettingsWorld(t, newLister())
 	s := w.state

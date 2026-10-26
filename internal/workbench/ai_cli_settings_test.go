@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"motty/internal/ai/store"
+	"os"
 	"strings"
 	"testing"
 )
@@ -85,5 +86,51 @@ func TestCLIModelRefreshDoesNotClaimRemoteDiscovery(t *testing.T) {
 	text, failed := s.aiModelsStatus()
 	if failed || text != s.messages.AISettings.CLIModelsNote {
 		t.Fatal("static default mislabeled as discovery", text)
+	}
+}
+
+func TestSwitchingCLIPresetsDropsThePreviousExecutable(t *testing.T) {
+	w := newSettingsWorld(t, newLister())
+	s := w.state
+	s.aiOpenProviderForm("")
+	claude, codex := -1, -1
+	for i, preset := range aiPresets {
+		switch preset.kind {
+		case store.KindClaudeCLI:
+			claude = i
+		case store.KindCodexCLI:
+			codex = i
+		}
+	}
+	if claude < 0 || codex < 0 {
+		t.Fatal("CLI presets missing")
+	}
+	s.aiChoosePreset(claude)
+	s.ai.cfg.cliPath.Insert("/opt/claude")
+	s.aiChoosePreset(codex)
+	if got := s.ai.cfg.cliPath.String(); got != "" {
+		t.Fatalf("switching from Claude Code CLI to Codex CLI kept path %q", got)
+	}
+}
+
+func TestDeletingKeylessCLIProviderDoesNotUnlockTheVault(t *testing.T) {
+	w := newSettingsWorld(t, newLister())
+	s := w.state
+	path, _ := os.Executable()
+	db, _ := s.aiStore()
+	if err := db.SaveProvider(store.Provider{ID: "cli", Name: "CLI", Kind: "codex-cli", CLIPath: path, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	s.reloadAI()
+	if err := s.secrets.vault.SetMasterPassword("master password"); err != nil {
+		t.Fatal(err)
+	}
+	s.secrets.vault.Lock()
+	s.aiDeleteProvider("cli")
+	if s.modal != modalNone {
+		t.Fatalf("deleting a keyless CLI provider opened modal %d", s.modal)
+	}
+	if _, ok := s.aiProviderByID("cli"); ok {
+		t.Fatal("keyless CLI provider was not deleted")
 	}
 }
