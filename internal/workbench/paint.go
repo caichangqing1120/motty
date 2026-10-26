@@ -1430,6 +1430,12 @@ func paintIcon(canvas *ui.Canvas, kind uint8, bounds ui.Rect, foreground ui.Colo
 // paintHostDialog renders the modal New Host form on its own layer.
 func (state *State) paintHostDialog(canvas *ui.Canvas, viewport ui.Rect) {
 	m, theme := state.messages, state.Theme()
+	networkHost := state.editor.protocol != protocolSerial
+	sshHost := state.editor.protocol == protocolSSH
+	proxyHeight := float32(0)
+	if sshHost {
+		proxyHeight = hostFormRowHeight
+	}
 	title, submit := m.DialogTitle, m.AddHost
 	switch state.hostDialogMode {
 	case hostDialogEdit:
@@ -1443,15 +1449,15 @@ func (state *State) paintHostDialog(canvas *ui.Canvas, viewport ui.Rect) {
 		DismissID:      hitDialogDismiss,
 		CloseID:        hitDialogClose,
 		InitialFocusID: hitDialogLabel,
-		ContentSize:    ui.Size{Width: 460, Height: 472 + state.hostDialogExtra()},
+		ContentSize:    ui.Size{Width: 460, Height: 472 + proxyHeight + state.hostDialogExtra()},
 	})
 	layout := dialog.Begin(title, "")
 
 	const rowHeight = hostFormRowHeight
-	ssh := state.editor.protocol == protocolSSH
+	ssh := sshHost
 	vncHost := state.editor.protocol == protocolVNC || state.editor.protocol == protocolRDP
 	var vncRows flex.Box
-	var protocol, label, endpoint, group, tags, iconField, transfer, advanced flex.Box
+	var protocol, label, endpoint, group, tags, iconField, transfer, proxy, advanced flex.Box
 	f := state.chrome.dialog.Begin(canvas, state.Theme(), layout.Body)
 	f.Column().Fill().PadSides(2, 4, 0, 4).Children(func() {
 		protocol = f.Slot().Height(34).MarginSides(0, 0, 10, 0)
@@ -1465,8 +1471,13 @@ func (state *State) paintHostDialog(canvas *ui.Canvas, viewport ui.Rect) {
 			iconField = f.Slot().Grow(1)
 			if ssh {
 				transfer = f.Slot().WidthPercent(46)
+			} else if networkHost {
+				proxy = f.Slot().WidthPercent(54)
 			}
 		})
+		if ssh {
+			proxy = f.Slot().Height(rowHeight)
+		}
 		if ssh {
 			advanced = f.Slot().Height(state.advancedSectionHeight())
 		}
@@ -1485,6 +1496,9 @@ func (state *State) paintHostDialog(canvas *ui.Canvas, viewport ui.Rect) {
 	state.paintDialogField(canvas, hitDialogGroup, fieldGroup, m.FieldGroup, m.FieldGroupPlaceholder, group.Rect())
 	state.paintDialogField(canvas, hitDialogTags, fieldTags, m.FieldTags, m.FieldTagsPlaceholder, tags.Rect())
 	state.paintHostIconChoice(canvas, iconField.Rect())
+	if networkHost {
+		state.paintHostProxyRow(canvas, proxy.Rect())
+	}
 	if vncHost {
 		state.paintVNCRows(canvas, vncRows.Rect())
 	}
