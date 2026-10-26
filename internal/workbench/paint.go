@@ -1433,8 +1433,14 @@ func (state *State) paintHostDialog(canvas *ui.Canvas, viewport ui.Rect) {
 	networkHost := state.editor.protocol != protocolSerial
 	sshHost := state.editor.protocol == protocolSSH
 	proxyHeight := float32(0)
-	if sshHost {
+	proxyRowHeight := float32(hostFormRowHeight)
+	if networkHost {
 		proxyHeight = hostFormRowHeight
+		if !sshHost {
+			// A compact full-width row fits the short host dialog where sharing
+			// the icon row used to clip both values.
+			proxyHeight, proxyRowHeight = 48, 48
+		}
 	}
 	title, submit := m.DialogTitle, m.AddHost
 	switch state.hostDialogMode {
@@ -1471,12 +1477,12 @@ func (state *State) paintHostDialog(canvas *ui.Canvas, viewport ui.Rect) {
 			iconField = f.Slot().Grow(1)
 			if ssh {
 				transfer = f.Slot().WidthPercent(46)
-			} else if networkHost {
-				proxy = f.Slot().WidthPercent(54)
 			}
 		})
-		if ssh {
-			proxy = f.Slot().Height(rowHeight)
+		if networkHost {
+			// The proxy is its own row: sharing the icon row clipped both the
+			// icon value and the proxy summary on VNC, RDP and Telnet.
+			proxy = f.Slot().Height(proxyRowHeight)
 		}
 		if ssh {
 			advanced = f.Slot().Height(state.advancedSectionHeight())

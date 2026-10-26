@@ -22,7 +22,7 @@ func TestTheDiagnosticsReportNamesNoHostAccountOrAddress(t *testing.T) {
 	connection := connect(t, state, world)
 	connection.set(func(status *sshconn.Status) {
 		status.Phase = sshconn.PhaseFailed
-		status.Err = fmt.Errorf("proxy private.proxy.internal:1080 dial tcp 203.0.113.9:22 for deploy on prod.example.com: %w", sshconn.ErrDisconnected)
+		status.Err = fmt.Errorf("proxy private.proxy.internal:1080: lookup private.proxy.internal: no such host: dial tcp 203.0.113.9:22 for deploy on prod.example.com: %w", sshconn.ErrDisconnected)
 		status.ServerVersion = "SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13"
 	})
 	state.Wake()

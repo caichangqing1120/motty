@@ -3,6 +3,7 @@ package workbench
 import (
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"runtime"
 	"runtime/debug"
@@ -72,6 +73,11 @@ func (state *State) diagnosticsRedactor() (*diag.Redactor, map[uint32]string) {
 			return
 		}
 		redactor.Hide(proxy.address, "outbound-proxy")
+		// A failed lookup can leave the bare host in the wrapped error after the
+		// host:port form is replaced, so hide the host on its own as well.
+		if host, _, err := net.SplitHostPort(proxy.address); err == nil && host != "" {
+			redactor.Hide(host, "outbound-proxy")
+		}
 		hide("", "", proxy.user)
 	}
 	for index, host := range state.hosts {

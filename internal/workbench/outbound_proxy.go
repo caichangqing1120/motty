@@ -1,6 +1,7 @@
 package workbench
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"net"
@@ -136,8 +137,15 @@ func restoredHostProxy(saved *savedOutboundProxy) *outboundProxy {
 	return &outboundProxy{kind: kind, address: saved.Address, user: saved.User, bypass: strings.Join(entries, ", ")}
 }
 
-func hostProxyPasswordSecret(catalogID string) string {
-	return hostProxyPasswordPrefix + catalogID + ":password"
+// hostProxyPasswordSecret binds a proxy password to the login it was entered
+// for. A changed kind, address or user therefore cannot reuse the old secret:
+// the lookup name changes, and the user must enter the new password.
+func hostProxyPasswordSecret(catalogID string, proxy *outboundProxy) string {
+	if proxy == nil || proxy.kind == sshconn.ProxyNone || proxy.user == "" {
+		return ""
+	}
+	login := sha256.Sum256([]byte(proxyKindString(proxy.kind) + "\x00" + proxy.address + "\x00" + proxy.user))
+	return fmt.Sprintf("%s%s:%x:password", hostProxyPasswordPrefix, catalogID, login[:8])
 }
 
 func (state *State) proxyKindName(kind sshconn.ProxyKind) string {
@@ -220,7 +228,7 @@ func (state *State) proxyForHost(host Host) *sshconn.Proxy {
 	if host.Proxy == nil {
 		return state.currentProxy()
 	}
-	return state.proxyWithPassword(*host.Proxy, hostProxyPasswordSecret(host.CatalogID))
+	return state.proxyWithPassword(*host.Proxy, hostProxyPasswordSecret(host.CatalogID, host.Proxy))
 }
 
 // proxyRouteKey identifies the non-secret route a live connection used. It is
@@ -281,30 +289,54 @@ func (state *State) hostProxyChanges(host Host, previous, source *Host) (note st
 	vaultFile := state.secrets.vault
 	proxy := host.Proxy
 	needsPassword := proxy != nil && proxy.kind != sshconn.ProxyNone && proxy.user != ""
+	destination := hostProxyPasswordSecret(host.CatalogID, proxy)
+	previousSecret := ""
+	if previous != nil {
+		previousSecret = hostProxyPasswordSecret(host.CatalogID, previous.Proxy)
+	}
 	if needsPassword && state.editor.proxyPassword != "" {
 		if vaultFile == nil {
 			return "", nil, state.messages.Tools.ProxyErrorNoVault
 		}
-		return "", []vault.Change{{Name: hostProxyPasswordSecret(host.CatalogID), Value: state.editor.proxyPassword}}, ""
+		changes = append(changes, vault.Change{Name: destination, Value: state.editor.proxyPassword})
+		if previousSecret != "" && previousSecret != destination && vaultFile.Unlocked() {
+			changes = append(changes, vault.Change{Name: previousSecret, Delete: true})
+		}
+		return "", changes, ""
 	}
 	if needsPassword && previous == nil && source != nil && sameProxyLogin(proxy, source.Proxy) && vaultFile != nil && vaultFile.Len() > 0 {
 		if !vaultFile.Unlocked() {
 			return state.messages.Tools.HostProxyPasswordNotCarried, nil, ""
 		}
-		value, found, err := vaultFile.Get(hostProxyPasswordSecret(source.CatalogID))
+		origin := hostProxyPasswordSecret(source.CatalogID, source.Proxy)
+		if origin == "" {
+			return "", nil, ""
+		}
+		value, found, err := vaultFile.Get(origin)
 		if err != nil {
 			return "", nil, fmt.Sprintf(state.messages.VaultSaveFailedFmt, state.vaultErrorText(err))
 		}
 		if found {
-			return "", []vault.Change{{Name: hostProxyPasswordSecret(host.CatalogID), Value: value}}, ""
+			return "", []vault.Change{{Name: destination, Value: value}}, ""
 		}
+	}
+	if previous != nil && needsPassword && previous.Proxy != nil &&
+		previous.Proxy.kind != sshconn.ProxyNone && previous.Proxy.user != "" &&
+		!sameProxyLogin(proxy, previous.Proxy) {
+		// A password is bound to the login it was entered for; never carry it
+		// over to a different proxy endpoint or account.
+		return "", nil, state.messages.Tools.HostProxyPasswordChanged
 	}
 	hadPassword := previous != nil && previous.Proxy != nil && previous.Proxy.kind != sshconn.ProxyNone && previous.Proxy.user != ""
 	if !needsPassword && hadPassword && vaultFile != nil {
-		if !vaultFile.Unlocked() && vaultFile.Len() > 0 {
+		// A locked master-password vault must be opened before its secret can be
+		// retired. The default system-keystore vault can be opened by Apply.
+		if !vaultFile.Unlocked() && vaultFile.HasMasterPassword() && vaultFile.Len() > 0 {
 			return "", nil, state.messages.Tools.ProxyPasswordLocked
 		}
-		return "", []vault.Change{{Name: hostProxyPasswordSecret(host.CatalogID), Delete: true}}, ""
+		if previousSecret != "" {
+			return "", []vault.Change{{Name: previousSecret, Delete: true}}, ""
+		}
 	}
 	return "", nil, ""
 }
@@ -525,7 +557,7 @@ func (state *State) hostProxyDescription() string {
 	if proxy.kind == sshconn.ProxyNone {
 		return m.HostProxyDescriptionDirect
 	}
-	return fmt.Sprintf(m.ProxyDescriptionFmt, state.proxyKindName(proxy.kind), proxy.address)
+	return fmt.Sprintf(m.HostProxyDescriptionFmt, state.proxyKindName(proxy.kind), proxy.address)
 }
 
 func (state *State) paintHostProxyRow(canvas *ui.Canvas, bounds ui.Rect) {

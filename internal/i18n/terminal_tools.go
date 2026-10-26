@@ -128,6 +128,8 @@ type ToolsMessages struct {
 	HostProxyDirect             string
 	HostProxyDescriptionInherit string
 	HostProxyDescriptionDirect  string
+	HostProxyDescriptionFmt     string // the kind, then the address
+	HostProxyPasswordChanged    string
 	HostProxyDialogTitle        string
 	HostProxyDialogDescription  string
 	HostProxyPasswordNotCarried string
@@ -653,6 +655,8 @@ var englishTools = ToolsMessages{
 	HostProxyDirect:             "Direct",
 	HostProxyDescriptionInherit: "Use the global outbound proxy setting.",
 	HostProxyDescriptionDirect:  "Always connect directly.",
+	HostProxyDescriptionFmt:     "%s at %s carries this host's first connection.",
+	HostProxyPasswordChanged:    "The proxy login changed. Enter the new proxy password to save this host.",
 	HostProxyDialogTitle:        "Host proxy forwarding",
 	HostProxyDialogDescription:  "Choose how this host reaches its first network endpoint.",
 	HostProxyPasswordNotCarried: "The saved proxy password was not copied because saved passwords are locked.",
@@ -1172,6 +1176,8 @@ var chineseTools = ToolsMessages{
 	HostProxyDirect:             "直连",
 	HostProxyDescriptionInherit: "使用全局出站代理设置。",
 	HostProxyDescriptionDirect:  "始终直接连接。",
+	HostProxyDescriptionFmt:     "%s（%s）承载这台主机的第一条连接。",
+	HostProxyPasswordChanged:    "代理登录已改变，请重新输入新的代理密码后再保存主机。",
 	HostProxyDialogTitle:        "主机代理转发",
 	HostProxyDialogDescription:  "选择这台主机建立第一条网络连接的方式。",
 	HostProxyPasswordNotCarried: "已保存的代理密码未复制，因为密码保险库尚未解锁。",

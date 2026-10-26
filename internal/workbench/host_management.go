@@ -542,11 +542,13 @@ func (state *State) confirmDeleteHosts() {
 			if !containsHostID(state.hostActionIDs, host.ID) || host.Proxy == nil || host.Proxy.kind == sshconn.ProxyNone || host.Proxy.user == "" {
 				continue
 			}
-			proxyChanges = append(proxyChanges, vault.Change{Name: hostProxyPasswordSecret(host.CatalogID), Delete: true})
+			proxyChanges = append(proxyChanges, vault.Change{Name: hostProxyPasswordSecret(host.CatalogID, host.Proxy), Delete: true})
 		}
 	}
 	if len(proxyChanges) > 0 {
-		if !vaultFile.Unlocked() {
+		// The default system-keystore vault can be opened by Apply; only a
+		// master-password vault needs an explicit unlock first.
+		if !vaultFile.Unlocked() && vaultFile.HasMasterPassword() {
 			state.dialogError = state.messages.Tools.ProxyPasswordLocked
 			return
 		}

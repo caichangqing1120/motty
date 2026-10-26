@@ -177,7 +177,7 @@ func TestAHostCanInheritDisableOrOverrideTheGlobalProxy(t *testing.T) {
 			kind: sshconn.ProxyHTTPConnect, address: "edge.proxy:3128", user: "edge", bypass: "*.internal",
 		},
 	}
-	if err := state.secrets.vault.Set(hostProxyPasswordSecret(host.CatalogID), "edge-secret"); err != nil {
+	if err := state.secrets.vault.Set(hostProxyPasswordSecret(host.CatalogID, host.Proxy), "edge-secret"); err != nil {
 		t.Fatal(err)
 	}
 	dedicated := state.proxyForHost(host)
@@ -200,7 +200,7 @@ func TestHostProxyConfigurationRoundTripsWithoutItsPassword(t *testing.T) {
 	host.finish()
 	state.hosts = append(state.hosts, host)
 	state.nextHostID = 2
-	if err := state.secrets.vault.Set(hostProxyPasswordSecret(host.CatalogID), "never-serialize-me"); err != nil {
+	if err := state.secrets.vault.Set(hostProxyPasswordSecret(host.CatalogID, host.Proxy), "never-serialize-me"); err != nil {
 		t.Fatal(err)
 	}
 	state.save()
@@ -265,7 +265,7 @@ func TestTheHostProxyDialogStagesAProxyUntilTheHostIsSaved(t *testing.T) {
 		t.Fatalf("the global proxy changed to %+v", state.proxy)
 	}
 	catalogID := catalogIDFor(Host{Address: "edge-proxy.example.com", User: "ops", Port: 22})
-	if _, found, _ := state.secrets.vault.Get(hostProxyPasswordSecret(catalogID)); found {
+	if _, found, _ := state.secrets.vault.Get(hostProxyPasswordSecret(catalogID, state.editor.proxy)); found {
 		t.Fatal("the staged proxy password entered the vault before the host was saved")
 	}
 
@@ -277,7 +277,7 @@ func TestTheHostProxyDialogStagesAProxyUntilTheHostIsSaved(t *testing.T) {
 	if state.editor.proxyPassword != "" {
 		t.Fatal("the staged proxy password remained in the host editor after save")
 	}
-	password, found, err := state.secrets.vault.Get(hostProxyPasswordSecret(added.CatalogID))
+	password, found, err := state.secrets.vault.Get(hostProxyPasswordSecret(added.CatalogID, added.Proxy))
 	if err != nil || !found || password != "host-secret" {
 		t.Fatalf("saved host proxy password = %q, %t, %v", password, found, err)
 	}
@@ -327,7 +327,7 @@ func TestCancelingTheOuterHostFormDiscardsAnAcceptedProxyDraft(t *testing.T) {
 		state := newTestState(t, options)
 		host := &state.hosts[0]
 		host.Proxy = &outboundProxy{kind: sshconn.ProxySOCKS5, address: "saved.proxy:1080", user: "saved-user"}
-		secretName := hostProxyPasswordSecret(host.CatalogID)
+		secretName := hostProxyPasswordSecret(host.CatalogID, host.Proxy)
 		if err := state.secrets.vault.Set(secretName, "saved-secret"); err != nil {
 			t.Fatal(err)
 		}
@@ -377,6 +377,113 @@ func TestTheHostDialogOffersProxyConfigurationOnlyForNetworkHosts(t *testing.T) 
 	canvas, _ = paintedTexts(state)
 	if _, ok := hitByID(canvas, hitHostProxyConfigure); ok {
 		t.Fatal("a serial host offers proxy configuration")
+	}
+}
+
+func TestChangingAHostProxyLoginRequiresANewPassword(t *testing.T) {
+	_, options := proxyWorld(t)
+	state := newTestState(t, options)
+	host := &state.hosts[0]
+	host.Proxy = &outboundProxy{kind: sshconn.ProxySOCKS5, address: "old.proxy:1080", user: "alice"}
+	oldSecret := hostProxyPasswordSecret(host.CatalogID, host.Proxy)
+	if err := state.secrets.vault.Set(oldSecret, "old-secret"); err != nil {
+		t.Fatal(err)
+	}
+	state.openEditHostID(host.ID)
+	state.Click(hitHostProxyConfigure)
+	state.proxyForm.address = *text.NewEditor("new.proxy:1080")
+	state.Click(hitOutboundProxySubmit)
+	state.Click(hitDialogSubmit)
+	if state.modal != modalNewHost || state.dialogError != state.messages.Tools.HostProxyPasswordChanged {
+		t.Fatalf("changed login modal=%d error=%q", state.modal, state.dialogError)
+	}
+	state.Click(hitHostProxyConfigure)
+	state.proxyForm.password = *text.NewEditor("new-secret")
+	state.Click(hitOutboundProxySubmit)
+	state.Click(hitDialogSubmit)
+	if state.modal != modalNone || state.dialogError != "" {
+		t.Fatalf("saving the new login modal=%d error=%q", state.modal, state.dialogError)
+	}
+	proxy := state.proxyForHost(state.hosts[0])
+	if proxy == nil || proxy.Address != "new.proxy:1080" || proxy.Password != "new-secret" {
+		t.Fatalf("new login proxy = %+v", proxy)
+	}
+	if _, found, _ := state.secrets.vault.Get(oldSecret); found {
+		t.Fatal("the old proxy password survived the login change")
+	}
+}
+
+func TestARepointedProxyCannotReuseTheOldPassword(t *testing.T) {
+	_, options := proxyWorld(t)
+	state := newTestState(t, options)
+	host := &state.hosts[0]
+	host.Proxy = &outboundProxy{kind: sshconn.ProxySOCKS5, address: "old.proxy:1080", user: "alice"}
+	if err := state.secrets.vault.Set(hostProxyPasswordSecret(host.CatalogID, host.Proxy), "old-secret"); err != nil {
+		t.Fatal(err)
+	}
+	// A synced or imported host record can repoint the proxy without going
+	// through the host dialog; the bound secret must not follow it.
+	host.Proxy = &outboundProxy{kind: sshconn.ProxySOCKS5, address: "new.proxy:1080", user: "alice"}
+	if proxy := state.proxyForHost(*host); proxy == nil || proxy.Password != "" {
+		t.Fatalf("repointed proxy reused the old secret: %+v", proxy)
+	}
+}
+
+func TestAHostProxyDescriptionIsHostScoped(t *testing.T) {
+	_, options := proxyWorld(t)
+	state := newTestState(t, options)
+	state.editor.proxy = &outboundProxy{kind: sshconn.ProxySOCKS5, address: "host.proxy:1080", user: "alice"}
+	description := state.hostProxyDescription()
+	if !strings.Contains(description, "this host") || strings.Contains(description, "every session") {
+		t.Fatalf("host proxy description = %q", description)
+	}
+}
+
+func TestRemovingAHostProxyLoginOpensTheDefaultVault(t *testing.T) {
+	_, options := proxyWorld(t)
+	state := newTestState(t, options)
+	host := &state.hosts[0]
+	host.Proxy = &outboundProxy{kind: sshconn.ProxySOCKS5, address: "old.proxy:1080", user: "alice"}
+	secret := hostProxyPasswordSecret(host.CatalogID, host.Proxy)
+	if err := state.secrets.vault.Set(secret, "old-secret"); err != nil {
+		t.Fatal(err)
+	}
+	state.secrets.vault.Lock()
+
+	state.openEditHostID(host.ID)
+	state.Click(hitHostProxyConfigure)
+	state.Click(hitProxyKindNone)
+	state.Click(hitOutboundProxySubmit)
+	state.Click(hitDialogSubmit)
+	if state.modal != modalNone || state.dialogError != "" {
+		t.Fatalf("removing the login modal=%d error=%q", state.modal, state.dialogError)
+	}
+	if state.hosts[0].Proxy == nil || state.hosts[0].Proxy.kind != sshconn.ProxyNone {
+		t.Fatalf("removed proxy = %+v", state.hosts[0].Proxy)
+	}
+	if _, found, _ := state.secrets.vault.Get(secret); found {
+		t.Fatal("the retired proxy password survived")
+	}
+}
+
+func TestDeletingAProxyHostOpensTheDefaultVault(t *testing.T) {
+	_, options := proxyWorld(t)
+	state := newTestState(t, options)
+	host := state.hosts[0]
+	host.Proxy = &outboundProxy{kind: sshconn.ProxySOCKS5, address: "old.proxy:1080", user: "alice"}
+	state.hosts[0].Proxy = host.Proxy
+	secret := hostProxyPasswordSecret(host.CatalogID, host.Proxy)
+	if err := state.secrets.vault.Set(secret, "old-secret"); err != nil {
+		t.Fatal(err)
+	}
+	state.secrets.vault.Lock()
+	state.hostActionIDs = []uint32{host.ID}
+	state.confirmDeleteHosts()
+	if len(state.hosts) != len(sampleHosts)-1 || state.dialogError != "" {
+		t.Fatalf("delete hosts=%d error=%q", len(state.hosts), state.dialogError)
+	}
+	if _, found, _ := state.secrets.vault.Get(secret); found {
+		t.Fatal("the deleted host's proxy password survived")
 	}
 }
 
@@ -489,7 +596,7 @@ func TestANewHostGetsAUniqueCatalogIDBeforeItsProxyPasswordIsSaved(t *testing.T)
 	state := newTestState(t, options)
 	originalID := state.hosts[0].CatalogID
 	state.hosts[0].Proxy = &outboundProxy{kind: sshconn.ProxySOCKS5, address: "original.proxy:1080", user: "original-user"}
-	if err := state.secrets.vault.Set(hostProxyPasswordSecret(originalID), "original-secret"); err != nil {
+	if err := state.secrets.vault.Set(hostProxyPasswordSecret(originalID, state.hosts[0].Proxy), "original-secret"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -516,8 +623,8 @@ func TestANewHostGetsAUniqueCatalogIDBeforeItsProxyPasswordIsSaved(t *testing.T)
 		t.Fatalf("new host reused catalog id %q", originalID)
 	}
 	for name, want := range map[string]string{
-		hostProxyPasswordSecret(originalID):            "original-secret",
-		hostProxyPasswordSecret(replacement.CatalogID): "replacement-secret",
+		hostProxyPasswordSecret(originalID, state.hosts[0].Proxy):         "original-secret",
+		hostProxyPasswordSecret(replacement.CatalogID, replacement.Proxy): "replacement-secret",
 	} {
 		if got, found, err := state.secrets.vault.Get(name); err != nil || !found || got != want {
 			t.Fatalf("secret %q = %q, %t, %v; want %q", name, got, found, err, want)
@@ -581,7 +688,7 @@ func TestCopyingAHostCarriesItsDedicatedProxyPassword(t *testing.T) {
 	state := newTestState(t, options)
 	source := &state.hosts[0]
 	source.Proxy = &outboundProxy{kind: sshconn.ProxyHTTPConnect, address: "shared.proxy:3128", user: "proxy-user"}
-	if err := state.secrets.vault.Set(hostProxyPasswordSecret(source.CatalogID), "proxy-secret"); err != nil {
+	if err := state.secrets.vault.Set(hostProxyPasswordSecret(source.CatalogID, source.Proxy), "proxy-secret"); err != nil {
 		t.Fatal(err)
 	}
 	state.openCopyHostID(source.ID)
@@ -591,7 +698,7 @@ func TestCopyingAHostCarriesItsDedicatedProxyPassword(t *testing.T) {
 	if state.modal != modalNone || copy.Proxy == nil || copy.Proxy.address != source.Proxy.address {
 		t.Fatalf("copy proxy = %+v modal=%d error=%q", copy.Proxy, state.modal, state.dialogError)
 	}
-	if got, found, err := state.secrets.vault.Get(hostProxyPasswordSecret(copy.CatalogID)); err != nil || !found || got != "proxy-secret" {
+	if got, found, err := state.secrets.vault.Get(hostProxyPasswordSecret(copy.CatalogID, copy.Proxy)); err != nil || !found || got != "proxy-secret" {
 		t.Fatalf("copied proxy password = %q, %t, %v", got, found, err)
 	}
 }
@@ -601,7 +708,7 @@ func TestDeletingAHostRetiresItsProxyPasswordBeforeItsCatalogIDCanBeReused(t *te
 	state := newTestState(t, options)
 	deleted := state.hosts[0]
 	state.hosts[0].Proxy = &outboundProxy{kind: sshconn.ProxySOCKS5, address: "old.proxy:1080", user: "proxy-user"}
-	secretName := hostProxyPasswordSecret(deleted.CatalogID)
+	secretName := hostProxyPasswordSecret(deleted.CatalogID, state.hosts[0].Proxy)
 	if err := state.secrets.vault.Set(secretName, "old-secret"); err != nil {
 		t.Fatal(err)
 	}
@@ -635,7 +742,7 @@ func TestDeletingAnAuthenticatedProxyHostWaitsForTheLockedVault(t *testing.T) {
 	state := newTestState(t, options)
 	host := &state.hosts[0]
 	host.Proxy = &outboundProxy{kind: sshconn.ProxySOCKS5, address: "private.proxy:1080", user: "proxy-user"}
-	secretName := hostProxyPasswordSecret(host.CatalogID)
+	secretName := hostProxyPasswordSecret(host.CatalogID, host.Proxy)
 	if err := state.secrets.vault.Set(secretName, "proxy-secret"); err != nil {
 		t.Fatal(err)
 	}
@@ -661,7 +768,7 @@ func TestRemovingAHostProxyLoginWaitsForTheLockedVault(t *testing.T) {
 	state := newTestState(t, options)
 	host := &state.hosts[0]
 	host.Proxy = &outboundProxy{kind: sshconn.ProxySOCKS5, address: "old.proxy:1080", user: "old-user"}
-	secretName := hostProxyPasswordSecret(host.CatalogID)
+	secretName := hostProxyPasswordSecret(host.CatalogID, host.Proxy)
 	if err := state.secrets.vault.Set(secretName, "old-secret"); err != nil {
 		t.Fatal(err)
 	}
