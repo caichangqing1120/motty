@@ -124,6 +124,9 @@ func TestTypedCopyPasswordOverridesTheSourceAndMissingSourceCreatesNothing(t *te
 		if value, found, err := state.secrets.vault.Get("password:deploy@prod-copy.example.com:22"); err != nil || !found || value != "replacement" {
 			t.Fatalf("copied password = %q found=%v err=%v", value, found, err)
 		}
+		if value, found, err := state.secrets.vault.Get(prodPasswordName); err != nil || !found || value != "source secret" {
+			t.Fatalf("typed copy changed source password = %q found=%v err=%v", value, found, err)
+		}
 	})
 
 	t.Run("no source", func(t *testing.T) {
@@ -175,6 +178,18 @@ func TestEditHostMovesItsSavedPasswordToAnEditedEndpoint(t *testing.T) {
 	}
 	if value, found, err := state.secrets.vault.Get(prodPasswordName); err != nil || found || value != "" {
 		t.Fatalf("old endpoint kept password = %q found=%v err=%v", value, found, err)
+	}
+
+	clickHostAction(state, hitEditHost)
+	state.editor.address = text.Editor{}
+	typeInto(state, hitDialogAddress, "final.example.com")
+	typeInto(state, hitDialogPassword, "replacement")
+	state.Click(hitDialogSubmit)
+	if value, found, err := state.secrets.vault.Get("password:deploy@final.example.com:22"); err != nil || !found || value != "replacement" {
+		t.Fatalf("typed moved password = %q found=%v err=%v", value, found, err)
+	}
+	if value, found, err := state.secrets.vault.Get("password:deploy@moved.example.com:22"); err != nil || found || value != "" {
+		t.Fatalf("typed move kept previous password = %q found=%v err=%v", value, found, err)
 	}
 }
 
