@@ -45,7 +45,7 @@
 
 - [ ] Add failing tests for three kinds, schema-v2 migration, unknown-kind rejection, empty CLI HTTP fields, and path-preserving sync/import/adoption.
 - [ ] Run `go test ./internal/ai/store ./internal/workbench -run 'CLI|Provider|Migration' -count=1`; confirm tests fail for missing behavior.
-- [ ] Implement schema v3 and shared validation; exclude path from records and preserve destination paths. Keep old API-key migration intact.
+- [ ] Implement schema v3 and shared validation; exclude path from records and preserve destination paths. Keep old API-key migration intact. Use independent `ai-cli-provider` records so old clients cannot tombstone CLI subtypes; scope imports/deletions by collection and preserve unknown future subtypes.
 - [ ] Repeat focused tests; require PASS, then record progress.
 
 ### Task 2: Scoped MCP Dispatch

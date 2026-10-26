@@ -48,7 +48,12 @@ tools, and risk Gate; it does not copy DBX's application architecture.
   expose `Provider.CLIPath`, do not overload `BaseURL`. Existing rows and vault
   key migrations retain their behavior. CLI rows have no HTTP URL/key/HasKey
   and never prompt to unlock the API-key vault.
-- Sync provider identity/type/enabled/models through current provider records.
+- Sync provider identity/type/enabled/models through separate `ai-cli-provider`
+  records (`ai_cli_providers` collection); HTTP keeps its existing `ai-provider`
+  records and `ai_providers` collection. Old clients preserve the unknown CLI
+  root without attempting to import it. HTTP and CLI collections are independently
+  authoritative; an absent CLI collection in a legacy backup does not delete
+  local CLI providers. Unknown future provider subtypes stay opaque and unowned.
   Paths are machine-local: exclude them from sync/export, preserve the local
   destination path when importing updates, and use empty on first restore.
   Provider deletion removes its local path with the SQLite row.

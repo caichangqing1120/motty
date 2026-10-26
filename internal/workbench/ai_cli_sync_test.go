@@ -15,17 +15,17 @@ func TestCLIProviderSyncKeepsDestinationExecutableLocal(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.reloadAI()
-	records := s.savedAIProviders()
+	records := s.savedAICLIProviders()
 	data, _ := json.Marshal(records)
 	if strings.Contains(string(data), "/destination/") {
 		t.Fatal("local path exported")
 	}
-	s.importAIProviders([]savedAIProvider{{ID: "cli", Name: "Renamed", Kind: "codex-cli", Enabled: true, Models: []savedAIModel{{Name: "default", Enabled: true}}}})
+	s.importAIProviderCollections(nil, &[]savedAIProvider{{ID: "cli", Name: "Renamed", Kind: "codex-cli", Enabled: true, Models: []savedAIModel{{Name: "default", Enabled: true}}}})
 	p, ok := s.aiProviderByID("cli")
 	if !ok || p.Name != "Renamed" || p.CLIPath != "/destination/codex" {
 		t.Fatal(p, ok)
 	}
-	s.importAIProviders([]savedAIProvider{{ID: "new", Name: "New", Kind: "opencode-cli", Enabled: true}})
+	s.importAIProviderCollections(nil, &[]savedAIProvider{{ID: "new", Name: "New", Kind: "opencode-cli", Enabled: true}})
 	p, ok = s.aiProviderByID("new")
 	if !ok || p.CLIPath != "" {
 		t.Fatal(p, ok)

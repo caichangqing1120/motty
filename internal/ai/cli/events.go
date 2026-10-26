@@ -8,11 +8,11 @@ import (
 )
 
 type parser struct {
-	kind    string
-	done    bool
-	usage   llm.Usage
-	partial bool
-	text    bool
+	kind     string
+	done     bool
+	usage    llm.Usage
+	streamed map[int]bool
+	text     bool
 }
 
 func newParser(kind string) *parser { return &parser{kind: kind} }
@@ -52,6 +52,11 @@ func (p *parser) line(line []byte) ([]llm.Event, error) {
 		} `json:"usage"`
 		Event struct {
 			Type  string `json:"type"`
+			Index int    `json:"index"`
+			Block struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"content_block"`
 			Delta struct {
 				Type     string `json:"type"`
 				Text     string `json:"text"`
@@ -99,25 +104,36 @@ func (p *parser) line(line []byte) ([]llm.Event, error) {
 	case "claude-code-cli":
 		switch v.Type {
 		case "stream_event":
-			if v.Event.Type == "content_block_start" {
-				p.partial = false
+			if v.Event.Type == "message_start" {
+				p.streamed = nil
+			}
+			streamText := func(text string) {
+				if text != "" {
+					if p.streamed == nil {
+						p.streamed = make(map[int]bool)
+					}
+					p.streamed[v.Event.Index] = true
+					add(llm.EventText, text)
+				}
+			}
+			if v.Event.Type == "content_block_start" && v.Event.Block.Type == "text" {
+				streamText(v.Event.Block.Text)
 			}
 			switch v.Event.Delta.Type {
 			case "text_delta":
-				p.partial = true
-				add(llm.EventText, v.Event.Delta.Text)
+				streamText(v.Event.Delta.Text)
 			case "thinking_delta":
 				add(llm.EventReasoning, v.Event.Delta.Thinking)
 			}
 		case "assistant":
-			if !p.partial {
-				for _, block := range v.Message.Content {
-					if block.Type == "text" {
-						add(llm.EventText, block.Text)
-					}
+			// Tool/thinking block starts must not reset text already streamed
+			// in the same message; only skip the matching snapshot blocks.
+			for index, block := range v.Message.Content {
+				if block.Type == "text" && !p.streamed[index] {
+					add(llm.EventText, block.Text)
 				}
 			}
-			p.partial = false
+			p.streamed = nil
 		case "result":
 			if v.Subtype != "success" {
 				return nil, providerError(line)
