@@ -6,6 +6,7 @@ import (
 
 	"github.com/vivaui/viva/text"
 	"github.com/vivaui/viva/ui"
+
 	"motty/internal/sshconn"
 	"motty/internal/vault"
 )
@@ -249,8 +250,9 @@ func (state *State) submitHostDialog() {
 			source = &original
 		}
 	}
-	if message := state.saveHostDialogPassword(host, source); message != "" {
-		state.dialogError = message
+	passwordNote, failure := state.saveHostDialogPassword(host, source)
+	if failure != "" {
+		state.dialogError = failure
 		return
 	}
 	state.nextHostID++
@@ -266,6 +268,7 @@ func (state *State) submitHostDialog() {
 	if state.editor.value(fieldOTP) != "" {
 		state.commitOTP(host, nil) // after the host's own line, so the secret's is the one read
 	}
+	state.appendStatusNote(passwordNote)
 	state.editor.password = text.Editor{}
 	state.hostDataChanged()
 	state.save()
@@ -280,8 +283,9 @@ func (state *State) updateHostFromEditor() {
 	}
 	previous := state.hosts[index]
 	updated := state.editor.host(previous.ID)
-	if message := state.saveHostDialogPassword(updated, &previous); message != "" {
-		state.dialogError = message
+	passwordNote, failure := state.saveHostDialogPassword(updated, &previous)
+	if failure != "" {
+		state.dialogError = failure
 		return
 	}
 	updated.CatalogID = previous.CatalogID
@@ -313,6 +317,7 @@ func (state *State) updateHostFromEditor() {
 	state.dialogError = ""
 	state.status = state.messages.HostUpdated + updated.Label
 	state.commitOTP(updated, &previous)
+	state.appendStatusNote(passwordNote)
 	state.editor.password = text.Editor{}
 	state.hostDataChanged()
 	state.save()
@@ -336,58 +341,94 @@ func (state *State) hostPasswordSecretName(host Host) (string, bool) {
 	return passwordSecretName(endpoint), true
 }
 
-// saveHostDialogPassword stores a typed password, or for a copy clones the
-// source host's saved password. The secret never becomes part of Host.
-func (state *State) saveHostDialogPassword(host Host, source *Host) string {
-	destination, ok := state.hostPasswordSecretName(host)
-	if !ok {
-		return ""
+// hostPasswordInUse reports whether a host other than skip signs in with the
+// saved password called name. Hosts at one endpoint share a single password,
+// because the connection looks it up by endpoint.
+func (state *State) hostPasswordInUse(name string, skip *Host) bool {
+	for _, other := range state.hosts {
+		if skip != nil && other.ID == skip.ID {
+			continue
+		}
+		if other, ok := state.hostPasswordSecretName(other); ok && other == name {
+			return true
+		}
 	}
-	value := state.editor.password.String()
-	vaultFile := state.secrets.vault
-	origin, moving := "", false
+	return false
+}
+
+// saveHostDialogPassword stores a typed password, or carries the saved one of
+// the host being copied or edited to the new endpoint. The secret never becomes
+// part of Host. It returns why the password could not be kept, and otherwise a
+// note for the status line when the vault was left alone.
+func (state *State) saveHostDialogPassword(host Host, source *Host) (note, failure string) {
+	destination, hasPassword := state.hostPasswordSecretName(host)
+	origin, hadPassword := "", false
 	if source != nil {
-		origin, ok = state.hostPasswordSecretName(*source)
-		if !ok {
-			origin = ""
-		}
-		moving = state.hostDialogMode == hostDialogEdit && origin != "" && origin != destination
+		origin, hadPassword = state.hostPasswordSecretName(*source)
 	}
-	if value == "" && source != nil {
-		if origin == "" {
-			return ""
-		}
-		if origin == destination {
-			return ""
-		}
+	editing := state.hostDialogMode == hostDialogEdit && source != nil
+	var self *Host
+	if editing {
+		self = source
+	}
+	vaultFile := state.secrets.vault
+	fail := func(err error) (string, string) { return "", state.hostPasswordSaveError(err) }
+
+	if typed := state.editor.password.String(); typed != "" && hasPassword {
 		if vaultFile == nil {
-			return state.hostPasswordSaveError(vault.ErrUnavailable)
+			return fail(vault.ErrUnavailable)
 		}
-		var found bool
-		var err error
-		value, found, err = vaultFile.Get(origin)
+		// Another host at this endpoint would silently get the new password.
+		if !(editing && destination == origin) && state.hostPasswordInUse(destination, self) {
+			existing, found, err := vaultFile.Get(destination)
+			if err != nil {
+				return fail(err)
+			}
+			if found && existing != typed {
+				return "", state.messages.HostPasswordShared
+			}
+		}
+		if err := vaultFile.Set(destination, typed); err != nil {
+			return fail(err)
+		}
+	} else if hasPassword && hadPassword && origin != destination && source.Protocol == host.Protocol &&
+		vaultFile != nil && vaultFile.Len() > 0 {
+		// Reading a vault that is not open could ask the system secret store
+		// for its key, which saving a host must not do.
+		if !vaultFile.Unlocked() {
+			return state.messages.HostPasswordNotCarried, ""
+		}
+		value, found, err := vaultFile.Get(origin)
 		if err != nil {
-			return state.hostPasswordSaveError(err)
+			return fail(err)
 		}
-		if !found {
-			return ""
+		if found {
+			// A password already saved for the destination belongs to its other host.
+			if _, taken, err := vaultFile.Get(destination); err != nil {
+				return fail(err)
+			} else if !taken {
+				if err := vaultFile.Set(destination, value); err != nil {
+					return fail(err)
+				}
+			}
 		}
 	}
-	if value == "" {
-		return ""
-	}
-	if vaultFile == nil {
-		return state.hostPasswordSaveError(vault.ErrUnavailable)
-	}
-	if err := vaultFile.Set(destination, value); err != nil {
-		return state.hostPasswordSaveError(err)
-	}
-	if moving {
+
+	// An edit that leaves its old endpoint, or leaves the protocols that have a
+	// password, must not leave the old secret behind unless another host uses it.
+	if editing && hadPassword && origin != destination && vaultFile != nil && vaultFile.Unlocked() &&
+		!state.hostPasswordInUse(origin, self) {
 		if err := vaultFile.Delete(origin); err != nil {
-			return state.hostPasswordSaveError(err)
+			return fail(err)
 		}
 	}
-	return ""
+	return "", ""
+}
+
+func (state *State) appendStatusNote(note string) {
+	if note != "" {
+		state.status += " · " + note
+	}
 }
 
 func (state *State) hostPasswordSaveError(err error) string {

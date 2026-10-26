@@ -286,6 +286,8 @@ func (editor *hostEditor) setProtocol(protocol hostProtocol) {
 	if protocol == editor.protocol {
 		return
 	}
+	// A password typed for one protocol's account is not another's.
+	editor.password = text.Editor{}
 	previous := defaultPortText(editor.protocol)
 	if value := editor.value(fieldPort); value == "" || value == previous {
 		editor.port = text.Editor{}
