@@ -71,11 +71,16 @@ func (state *State) importAIProviders(list []savedAIProvider) {
 	}
 	wanted := make(map[string]bool, len(list))
 	for _, entry := range list {
-		if entry.ID == "" || (entry.Kind != store.KindOpenAI && entry.Kind != store.KindAnthropic) {
+		if entry.ID == "" || !store.ValidProviderKind(entry.Kind) {
 			continue
 		}
 		wanted[entry.ID] = true
 		provider := store.Provider{ID: entry.ID, Name: entry.Name, Kind: entry.Kind, BaseURL: entry.BaseURL, HasKey: entry.HasKey, Enabled: entry.Enabled}
+		for _, local := range current {
+			if local.ID == entry.ID && local.Kind == entry.Kind {
+				provider.CLIPath = local.CLIPath
+			}
+		}
 		if db.SaveProvider(provider) != nil {
 			continue
 		}
@@ -122,7 +127,7 @@ func (state *State) adoptRecordedProviders(db *store.Store) {
 		return
 	}
 	for _, entry := range recorded {
-		if entry.Kind != store.KindOpenAI && entry.Kind != store.KindAnthropic {
+		if !store.ValidProviderKind(entry.Kind) {
 			continue
 		}
 		_ = db.SaveProvider(store.Provider{ID: entry.ID, Name: entry.Name, Kind: entry.Kind, BaseURL: entry.BaseURL, HasKey: entry.HasKey, Enabled: entry.Enabled})
