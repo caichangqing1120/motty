@@ -270,12 +270,6 @@ func (editor *hostEditor) reset() {
 	editor.viaSSH, editor.clipboard = false, false
 }
 
-// acceptsPassword reports whether the selected protocol authenticates with a
-// password that Motty already knows how to keep in its encrypted vault.
-func (editor *hostEditor) acceptsPassword() bool {
-	return editor.protocol == protocolSSH || editor.protocol == protocolVNC || editor.protocol == protocolRDP
-}
-
 // defaultPortText is what the port field holds for a protocol until the user
 // types something: the standard port, or the line most serial devices start with.
 func defaultPortText(protocol hostProtocol) string {

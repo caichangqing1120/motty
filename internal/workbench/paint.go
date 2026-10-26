@@ -1442,15 +1442,12 @@ func (state *State) paintHostDialog(canvas *ui.Canvas, viewport ui.Rect) {
 	ssh := state.editor.protocol == protocolSSH
 	vncHost := state.editor.protocol == protocolVNC || state.editor.protocol == protocolRDP
 	var vncRows flex.Box
-	var protocol, label, endpoint, password, group, tags, iconField, transfer, advanced flex.Box
+	var protocol, label, endpoint, group, tags, iconField, transfer, advanced flex.Box
 	f := state.chrome.dialog.Begin(canvas, state.Theme(), layout.Body)
 	f.Column().Fill().PadSides(2, 4, 0, 4).Children(func() {
 		protocol = f.Slot().Height(34).MarginSides(0, 0, 10, 0)
 		label = f.Slot().Height(rowHeight)
 		endpoint = f.Slot().Height(2 * rowHeight)
-		if state.editor.acceptsPassword() {
-			password = f.Slot().Height(rowHeight)
-		}
 		f.Row().Height(rowHeight).Gap(8).Children(func() {
 			group = f.Slot().Grow(1)
 			tags = f.Slot().WidthPercent(46)
@@ -1476,16 +1473,6 @@ func (state *State) paintHostDialog(canvas *ui.Canvas, viewport ui.Rect) {
 	state.paintHostProtocolSwitch(canvas, protocol.Rect())
 	state.paintDialogField(canvas, hitDialogLabel, fieldLabel, m.FieldLabel, m.FieldLabelPlaceholder, label.Rect())
 	state.paintHostEndpointRows(canvas, endpoint.Rect().X, endpoint.Rect().Y, endpoint.Rect().Width, rowHeight)
-	if state.editor.acceptsPassword() {
-		placeholder := m.FieldPasswordHint
-		switch state.hostDialogMode {
-		case hostDialogEdit:
-			placeholder = m.FieldPasswordKeepHint
-		case hostDialogCopy:
-			placeholder = m.FieldPasswordCopyHint
-		}
-		state.paintSecureDialogField(canvas, hitDialogPassword, fieldPassword, m.FieldPassword, placeholder, password.Rect())
-	}
 	state.paintDialogField(canvas, hitDialogGroup, fieldGroup, m.FieldGroup, m.FieldGroupPlaceholder, group.Rect())
 	state.paintDialogField(canvas, hitDialogTags, fieldTags, m.FieldTags, m.FieldTagsPlaceholder, tags.Rect())
 	state.paintHostIconChoice(canvas, iconField.Rect())

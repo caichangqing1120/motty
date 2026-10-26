@@ -345,9 +345,16 @@ func (state *State) saveHostDialogPassword(host Host, source *Host) string {
 	}
 	value := state.editor.password.String()
 	vaultFile := state.secrets.vault
+	origin, moving := "", false
+	if source != nil {
+		origin, ok = state.hostPasswordSecretName(*source)
+		if !ok {
+			origin = ""
+		}
+		moving = state.hostDialogMode == hostDialogEdit && origin != "" && origin != destination
+	}
 	if value == "" && source != nil {
-		origin, supported := state.hostPasswordSecretName(*source)
-		if !supported {
+		if origin == "" {
 			return ""
 		}
 		if origin == destination {
@@ -374,6 +381,11 @@ func (state *State) saveHostDialogPassword(host Host, source *Host) string {
 	}
 	if err := vaultFile.Set(destination, value); err != nil {
 		return state.hostPasswordSaveError(err)
+	}
+	if moving {
+		if err := vaultFile.Delete(origin); err != nil {
+			return state.hostPasswordSaveError(err)
+		}
 	}
 	return ""
 }

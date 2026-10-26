@@ -173,6 +173,49 @@ func TestEditHostMovesItsSavedPasswordToAnEditedEndpoint(t *testing.T) {
 	if value, found, err := state.secrets.vault.Get("password:deploy@moved.example.com:22"); err != nil || !found || value != "source secret" {
 		t.Fatalf("moved password = %q found=%v err=%v", value, found, err)
 	}
+	if value, found, err := state.secrets.vault.Get(prodPasswordName); err != nil || found || value != "" {
+		t.Fatalf("old endpoint kept password = %q found=%v err=%v", value, found, err)
+	}
+}
+
+func TestHostPasswordFitsEveryHostDialogInAShortWindow(t *testing.T) {
+	tests := []struct {
+		name     string
+		protocol hostProtocol
+		last     ui.ID
+	}{
+		{name: "SSH", protocol: protocolSSH, last: hitDialogAdvanced},
+		{name: "VNC", protocol: protocolVNC, last: hitDialogClipboard},
+		{name: "RDP", protocol: protocolRDP, last: hitDialogClipboard},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			state := newTestState(t, testOptions(t))
+			state.openHostDialog()
+			state.editor.setProtocol(test.protocol)
+			canvas, _ := paintAt(state, ui.Size{Width: 900, Height: 600})
+			last, ok := hitByID(canvas, test.last)
+			if !ok {
+				t.Fatalf("last control %d was not painted", test.last)
+			}
+			submit, ok := hitByID(canvas, hitDialogSubmit)
+			if !ok {
+				t.Fatal("submit button was not painted")
+			}
+			if bottom := last.Bounds.Y + last.Bounds.Height; bottom > submit.Bounds.Y {
+				t.Fatalf("last control ends at %.0f inside footer starting at %.0f", bottom, submit.Bounds.Y)
+			}
+			password := false
+			for _, hit := range canvas.Hits() {
+				if hit.ID == hitDialogPassword && hit.Role == ui.RoleTextField {
+					password = hit.Secure && hit.Bounds.Y+hit.Bounds.Height <= submit.Bounds.Y
+				}
+			}
+			if !password {
+				t.Fatal("secure password input was absent or reached the footer")
+			}
+		})
+	}
 }
 
 func TestHostPasswordSaveErrorsKeepTheDialogOpen(t *testing.T) {
