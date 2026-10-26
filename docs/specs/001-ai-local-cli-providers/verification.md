@@ -3,7 +3,7 @@
 Date: 2026-10-26
 Issue: https://github.com/t8y2/motty/issues/19
 Design: `design.md`, approved v0.2
-Integration base: upstream `main` at `6d4b0c67b241adc00f14f4ee335887522fc2e35c`
+Integration base: upstream `main` at `f6b981191e3a7f9cc21c48728bb08b855dc58236`
 
 ## Environment
 
@@ -52,6 +52,11 @@ contact a real model or log into any user account.
 - Auth timeout stops the process without depending on UI event delivery.
 - Higher-priority modal keyboard/clipboard routing and private login scrolling
   remain correct after upstream input/modal changes.
+- Signed-out official-account status does not block a native send for any of
+  the three CLI kinds, replace its path/default model, inject Motty vault keys,
+  or trigger login. English/Chinese signed-out hints explicitly allow existing
+  third-party configuration. Installed Claude/Codex fixtures use third-party
+  routing without official-account login.
 
 ## Review Fixes
 
@@ -95,4 +100,5 @@ contact a real model or log into any user account.
 - One full-suite attempt observed a failure of the unchanged remote-stats test
   `TestWorkerAttachesTheGPULinesBeforeACountersLineToThatSample`; its isolated
   30-repeat run and subsequent complete ordinary/race gates passed. No change
-  was made to that module; the initial failure is retained in local evidence.
+  was made to that module by this feature; latest upstream subsequently adjusted
+  that fixture. The initial failure is retained in local evidence.

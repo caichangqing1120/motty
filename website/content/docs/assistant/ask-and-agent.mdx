@@ -21,6 +21,12 @@ and provider configuration. Select **CLI default model** to use its configured
 default, or manually add a model ID. The default entry and a successful version
 probe do not establish that authentication or model access works.
 
+Official-account sign-in is optional when the CLI already has a working
+third-party provider, API key, or gateway configuration. Authentication status
+is advisory: even a signed-out status does not block sending. Motty preserves
+the CLI's user-level routing and inherited environment; it does not replace
+them with official endpoints or move those credentials into Motty's vault.
+
 ### Sign in from Motty
 
 The selected local provider has **Check status** and **Sign in** actions. A

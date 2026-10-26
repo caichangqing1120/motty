@@ -97,7 +97,9 @@ third-party gateway failures as proof that official account login is needed.
 Existing environment/API-key/custom-provider modes continue to work without
 forcing a subscription-account browser login. If a CLI cannot report a reliable
 status, show unknown and offer manual login/recheck; do not block a normal send
-solely for missing status metadata or claim it is authenticated.
+solely for missing status metadata or claim it is authenticated. A signed-out
+official-account status is advisory too: a CLI with existing third-party
+provider credentials remains usable without official-account sign-in.
 
 Only a user click launches login; settings paint, model refresh, failed sends,
 and restoring a provider must never open a browser automatically. Disable
