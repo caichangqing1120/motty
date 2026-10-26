@@ -19,9 +19,12 @@ type hostEditor struct {
 	label   text.Editor
 	address text.Editor
 	user    text.Editor
-	group   text.Editor
-	tags    text.Editor
-	icon    hostIcon
+	// password is only the value typed in this dialog. It is never loaded from
+	// the vault or copied into Host; a successful submit stores it separately.
+	password text.Editor
+	group    text.Editor
+	tags     text.Editor
+	icon     hostIcon
 	// system is the system the host was last detected to run, whose badge the
 	// automatic icon shows.
 	system sshconn.RemoteSystem
@@ -68,6 +71,7 @@ const (
 	fieldLabel hostField = iota
 	fieldAddress
 	fieldUser
+	fieldPassword
 	fieldGroup
 	fieldPort
 	fieldTags
@@ -85,6 +89,8 @@ func (editor *hostEditor) field(field hostField) *text.Editor {
 		return &editor.address
 	case fieldUser:
 		return &editor.user
+	case fieldPassword:
+		return &editor.password
 	case fieldGroup:
 		return &editor.group
 	case fieldTags:
@@ -175,6 +181,7 @@ func (editor *hostEditor) load(host Host) {
 	editor.label = text.Editor{}
 	editor.address = text.Editor{}
 	editor.user = text.Editor{}
+	editor.password = text.Editor{}
 	editor.group = text.Editor{}
 	editor.tags = text.Editor{}
 	editor.icon, editor.iconOpen = hostIconAuto, false
@@ -249,6 +256,7 @@ func (editor *hostEditor) reset() {
 	editor.label = text.Editor{}
 	editor.address = text.Editor{}
 	editor.user = text.Editor{}
+	editor.password = text.Editor{}
 	editor.group = text.Editor{}
 	editor.tags = text.Editor{}
 	editor.icon, editor.system, editor.iconOpen = hostIconAuto, sshconn.SystemUnknown, false
@@ -260,6 +268,12 @@ func (editor *hostEditor) reset() {
 	editor.port.Insert(strconv.Itoa(defaultPort))
 	editor.protocol, editor.flow, editor.portsOpen = protocolSSH, serial.FlowNone, false
 	editor.viaSSH, editor.clipboard = false, false
+}
+
+// acceptsPassword reports whether the selected protocol authenticates with a
+// password that Motty already knows how to keep in its encrypted vault.
+func (editor *hostEditor) acceptsPassword() bool {
+	return editor.protocol == protocolSSH || editor.protocol == protocolVNC || editor.protocol == protocolRDP
 }
 
 // defaultPortText is what the port field holds for a protocol until the user

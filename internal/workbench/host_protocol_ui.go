@@ -275,13 +275,17 @@ func (state *State) advancedSectionHeight() float32 {
 
 // hostDialogExtra is the height the protocol-specific rows add to the host dialog.
 func (state *State) hostDialogExtra() float32 {
+	extra := float32(0)
+	if state.editor.acceptsPassword() {
+		extra += hostFormRowHeight
+	}
 	if state.editor.protocol == protocolVNC || state.editor.protocol == protocolRDP {
-		return vncRowsHeight
+		return extra + vncRowsHeight
 	}
 	if state.editor.protocol != protocolSSH {
-		return 0
+		return extra
 	}
-	return state.advancedSectionHeight()
+	return extra + state.advancedSectionHeight()
 }
 
 // otpButtonsRow is the room of the second row of the one-time code secret: the

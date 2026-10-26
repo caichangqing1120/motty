@@ -6,6 +6,8 @@ import (
 
 	"github.com/vivaui/viva/text"
 	"github.com/vivaui/viva/ui"
+	"motty/internal/sshconn"
+	"motty/internal/vault"
 )
 
 type hostDialogMode uint8
@@ -199,7 +201,7 @@ func (state *State) openCopyHostID(id uint32) {
 	state.editor.label = text.Editor{}
 	state.editor.label.Insert(fmt.Sprintf(state.messages.HostCopyLabelFmt, host.Label))
 	state.hostDialogMode = hostDialogCopy
-	state.hostDialogID = 0
+	state.hostDialogID = host.ID
 	state.dialogError = ""
 	state.modal = modalNewHost
 }
@@ -240,6 +242,17 @@ func (state *State) submitHostDialog() {
 		return
 	}
 	host := state.editor.host(state.nextHostID)
+	var source *Host
+	if state.hostDialogMode == hostDialogCopy {
+		if index := state.hostIndex(state.hostDialogID); index >= 0 {
+			original := state.hosts[index]
+			source = &original
+		}
+	}
+	if message := state.saveHostDialogPassword(host, source); message != "" {
+		state.dialogError = message
+		return
+	}
 	state.nextHostID++
 	state.hosts = append(state.hosts, host)
 	state.selectedHostID = host.ID
@@ -253,6 +266,7 @@ func (state *State) submitHostDialog() {
 	if state.editor.value(fieldOTP) != "" {
 		state.commitOTP(host, nil) // after the host's own line, so the secret's is the one read
 	}
+	state.editor.password = text.Editor{}
 	state.hostDataChanged()
 	state.save()
 	state.showNextPrompt()
@@ -266,6 +280,10 @@ func (state *State) updateHostFromEditor() {
 	}
 	previous := state.hosts[index]
 	updated := state.editor.host(previous.ID)
+	if message := state.saveHostDialogPassword(updated, &previous); message != "" {
+		state.dialogError = message
+		return
+	}
 	updated.CatalogID = previous.CatalogID
 	updated.System = previous.System
 	state.hosts[index] = updated
@@ -295,9 +313,73 @@ func (state *State) updateHostFromEditor() {
 	state.dialogError = ""
 	state.status = state.messages.HostUpdated + updated.Label
 	state.commitOTP(updated, &previous)
+	state.editor.password = text.Editor{}
 	state.hostDataChanged()
 	state.save()
 	state.showNextPrompt()
+}
+
+// hostPasswordSecretName maps a host to the same vault key its connection uses.
+// Desktop accounts are namespaced so they cannot collide with SSH credentials.
+func (state *State) hostPasswordSecretName(host Host) (string, bool) {
+	endpoint := sshconn.Endpoint{Host: host.Address, Port: host.Port}
+	switch host.Protocol {
+	case protocolSSH:
+		endpoint.User = state.login(host)
+	case protocolVNC:
+		endpoint.User = vncAccount
+	case protocolRDP:
+		endpoint.User = rdpAccountPrefix + host.User
+	default:
+		return "", false
+	}
+	return passwordSecretName(endpoint), true
+}
+
+// saveHostDialogPassword stores a typed password, or for a copy clones the
+// source host's saved password. The secret never becomes part of Host.
+func (state *State) saveHostDialogPassword(host Host, source *Host) string {
+	destination, ok := state.hostPasswordSecretName(host)
+	if !ok {
+		return ""
+	}
+	value := state.editor.password.String()
+	vaultFile := state.secrets.vault
+	if value == "" && source != nil {
+		origin, supported := state.hostPasswordSecretName(*source)
+		if !supported {
+			return ""
+		}
+		if origin == destination {
+			return ""
+		}
+		if vaultFile == nil {
+			return state.hostPasswordSaveError(vault.ErrUnavailable)
+		}
+		var found bool
+		var err error
+		value, found, err = vaultFile.Get(origin)
+		if err != nil {
+			return state.hostPasswordSaveError(err)
+		}
+		if !found {
+			return ""
+		}
+	}
+	if value == "" {
+		return ""
+	}
+	if vaultFile == nil {
+		return state.hostPasswordSaveError(vault.ErrUnavailable)
+	}
+	if err := vaultFile.Set(destination, value); err != nil {
+		return state.hostPasswordSaveError(err)
+	}
+	return ""
+}
+
+func (state *State) hostPasswordSaveError(err error) string {
+	return fmt.Sprintf(state.messages.VaultSaveFailedFmt, state.vaultErrorText(err))
 }
 
 func (state *State) hostIndex(id uint32) int {

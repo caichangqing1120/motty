@@ -251,6 +251,10 @@ type Messages struct {
 	FieldAddressPlaceholder     string
 	FieldUser                   string
 	FieldUserPlaceholder        string
+	FieldPassword               string
+	FieldPasswordHint           string
+	FieldPasswordKeepHint       string
+	FieldPasswordCopyHint       string
 	FieldGroup                  string
 	FieldGroupPlaceholder       string
 	FieldPort                   string
@@ -898,6 +902,10 @@ var EnglishMessages = Messages{
 	FieldAddressPlaceholder:     "Hostname or IP",
 	FieldUser:                   "User",
 	FieldUserPlaceholder:        "Login account",
+	FieldPassword:               "Password",
+	FieldPasswordHint:           "Optional; saved securely",
+	FieldPasswordKeepHint:       "Leave empty to keep the saved password",
+	FieldPasswordCopyHint:       "Leave empty to copy the saved password",
 	FieldGroup:                  "Group",
 	FieldGroupPlaceholder:       "Optional grouping",
 	FieldPort:                   "Port",
@@ -1519,6 +1527,10 @@ var ChineseMessages = Messages{
 	FieldAddressPlaceholder:     "主机名或 IP",
 	FieldUser:                   "用户",
 	FieldUserPlaceholder:        "登录账户",
+	FieldPassword:               "密码",
+	FieldPasswordHint:           "可选，安全保存",
+	FieldPasswordKeepHint:       "留空则保留已保存的密码",
+	FieldPasswordCopyHint:       "留空则复制已保存的密码",
 	FieldGroup:                  "分组",
 	FieldGroupPlaceholder:       "可选分组",
 	FieldPort:                   "端口",

@@ -1,12 +1,242 @@
 package workbench
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/vivaui/viva/text"
 	"github.com/vivaui/viva/ui"
 )
+
+func fillNewHost(state *State, label, address, user, password string) {
+	state.Click(hitAddHost)
+	typeInto(state, hitDialogLabel, label)
+	typeInto(state, hitDialogAddress, address)
+	typeInto(state, hitDialogUser, user)
+	typeInto(state, hitDialogPassword, password)
+}
+
+func TestNewHostPasswordIsSecureAndSavedInTheVault(t *testing.T) {
+	options := testOptions(t)
+	state := newTestState(t, options)
+	fillNewHost(state, "Edge", "edge.example.com", "ops", "correct horse")
+
+	canvas, texts := paintedTexts(state)
+	secureField := false
+	for _, hit := range canvas.Hits() {
+		if hit.ID == hitDialogPassword && hit.Role == ui.RoleTextField {
+			secureField = hit.Secure && hit.Value == ""
+		}
+	}
+	if !secureField {
+		t.Fatal("password input was not secure or exposed its value")
+	}
+	if contains(texts, "correct horse") {
+		t.Fatal("the host dialog painted the password")
+	}
+
+	state.Click(hitDialogSubmit)
+	if state.modal != modalNone || len(state.hosts) != 4 {
+		t.Fatalf("new host was not saved: modal=%d hosts=%d error=%q", state.modal, len(state.hosts), state.dialogError)
+	}
+	if value, found, err := state.secrets.vault.Get("password:ops@edge.example.com:22"); err != nil || !found || value != "correct horse" {
+		t.Fatalf("saved password = %q found=%v err=%v", value, found, err)
+	}
+}
+
+func TestHostPasswordUsesEachProtocolsExistingVaultKey(t *testing.T) {
+	tests := []struct {
+		name     string
+		protocol hostProtocol
+		user     string
+		secret   string
+	}{
+		{name: "SSH", protocol: protocolSSH, user: "ops", secret: "password:ops@host.example.com:22"},
+		{name: "VNC", protocol: protocolVNC, secret: "password:vnc@host.example.com:5900"},
+		{name: "RDP", protocol: protocolRDP, user: "CORP\\alice", secret: "password:rdp:CORP\\alice@host.example.com:3389"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			state := newTestState(t, testOptions(t))
+			state.openHostDialog()
+			state.editor.setProtocol(test.protocol)
+			state.editor.label.Insert(test.name)
+			state.editor.address.Insert("host.example.com")
+			state.editor.user.Insert(test.user)
+			state.editor.password.Insert("secret")
+			state.Click(hitDialogSubmit)
+
+			if state.modal != modalNone {
+				t.Fatalf("submit error = %q", state.dialogError)
+			}
+			if value, found, err := state.secrets.vault.Get(test.secret); err != nil || !found || value != "secret" {
+				t.Fatalf("%s = %q found=%v err=%v", test.secret, value, found, err)
+			}
+		})
+	}
+}
+
+func TestTelnetAndSerialHostsDoNotOfferAPassword(t *testing.T) {
+	for _, protocol := range []hostProtocol{protocolTelnet, protocolSerial} {
+		state := newTestState(t, testOptions(t))
+		state.openHostDialog()
+		state.editor.setProtocol(protocol)
+		canvas, _ := paintedTexts(state)
+		if _, ok := hitByID(canvas, hitDialogPassword); ok {
+			t.Fatalf("protocol %d painted a password field", protocol)
+		}
+	}
+}
+
+func TestCopyHostCopiesSavedPasswordToTheEditedEndpoint(t *testing.T) {
+	state := newTestState(t, testOptions(t))
+	if err := state.secrets.vault.Set(prodPasswordName, "source secret"); err != nil {
+		t.Fatal(err)
+	}
+	clickHostAction(state, hitCopyHost)
+	state.editor.address = text.Editor{}
+	typeInto(state, hitDialogAddress, "prod-copy.example.com")
+	state.Click(hitDialogSubmit)
+
+	if state.modal != modalNone || len(state.hosts) != 4 {
+		t.Fatalf("copy was not saved: modal=%d hosts=%d error=%q", state.modal, len(state.hosts), state.dialogError)
+	}
+	if value, found, err := state.secrets.vault.Get("password:deploy@prod-copy.example.com:22"); err != nil || !found || value != "source secret" {
+		t.Fatalf("copied password = %q found=%v err=%v", value, found, err)
+	}
+	if value, found, err := state.secrets.vault.Get(prodPasswordName); err != nil || !found || value != "source secret" {
+		t.Fatalf("source password changed = %q found=%v err=%v", value, found, err)
+	}
+}
+
+func TestTypedCopyPasswordOverridesTheSourceAndMissingSourceCreatesNothing(t *testing.T) {
+	t.Run("override", func(t *testing.T) {
+		state := newTestState(t, testOptions(t))
+		if err := state.secrets.vault.Set(prodPasswordName, "source secret"); err != nil {
+			t.Fatal(err)
+		}
+		clickHostAction(state, hitCopyHost)
+		state.editor.address = text.Editor{}
+		typeInto(state, hitDialogAddress, "prod-copy.example.com")
+		typeInto(state, hitDialogPassword, "replacement")
+		state.Click(hitDialogSubmit)
+		if value, found, err := state.secrets.vault.Get("password:deploy@prod-copy.example.com:22"); err != nil || !found || value != "replacement" {
+			t.Fatalf("copied password = %q found=%v err=%v", value, found, err)
+		}
+	})
+
+	t.Run("no source", func(t *testing.T) {
+		state := newTestState(t, testOptions(t))
+		clickHostAction(state, hitCopyHost)
+		state.editor.address = text.Editor{}
+		typeInto(state, hitDialogAddress, "prod-copy.example.com")
+		state.Click(hitDialogSubmit)
+		if value, found, err := state.secrets.vault.Get("password:deploy@prod-copy.example.com:22"); err != nil || found || value != "" {
+			t.Fatalf("empty source created password = %q found=%v err=%v", value, found, err)
+		}
+	})
+}
+
+func TestEditHostKeepsOrReplacesItsSavedPassword(t *testing.T) {
+	state := newTestState(t, testOptions(t))
+	if err := state.secrets.vault.Set(prodPasswordName, "source secret"); err != nil {
+		t.Fatal(err)
+	}
+	clickHostAction(state, hitEditHost)
+	state.Click(hitDialogSubmit)
+	if value, found, err := state.secrets.vault.Get(prodPasswordName); err != nil || !found || value != "source secret" {
+		t.Fatalf("blank edit changed password = %q found=%v err=%v", value, found, err)
+	}
+
+	clickHostAction(state, hitEditHost)
+	typeInto(state, hitDialogPassword, "replacement")
+	state.Click(hitDialogSubmit)
+	if value, found, err := state.secrets.vault.Get(prodPasswordName); err != nil || !found || value != "replacement" {
+		t.Fatalf("edited password = %q found=%v err=%v", value, found, err)
+	}
+}
+
+func TestEditHostMovesItsSavedPasswordToAnEditedEndpoint(t *testing.T) {
+	state := newTestState(t, testOptions(t))
+	if err := state.secrets.vault.Set(prodPasswordName, "source secret"); err != nil {
+		t.Fatal(err)
+	}
+	clickHostAction(state, hitEditHost)
+	state.editor.address = text.Editor{}
+	typeInto(state, hitDialogAddress, "moved.example.com")
+	state.Click(hitDialogSubmit)
+
+	if state.modal != modalNone || state.hosts[0].Address != "moved.example.com" {
+		t.Fatalf("edited host was not saved: modal=%d host=%+v error=%q", state.modal, state.hosts[0], state.dialogError)
+	}
+	if value, found, err := state.secrets.vault.Get("password:deploy@moved.example.com:22"); err != nil || !found || value != "source secret" {
+		t.Fatalf("moved password = %q found=%v err=%v", value, found, err)
+	}
+}
+
+func TestHostPasswordSaveErrorsKeepTheDialogOpen(t *testing.T) {
+	t.Run("locked", func(t *testing.T) {
+		state := newTestState(t, testOptions(t))
+		if err := state.secrets.vault.SetMasterPassword("a master password"); err != nil {
+			t.Fatal(err)
+		}
+		state.secrets.vault.Lock()
+		fillNewHost(state, "Edge", "edge.example.com", "ops", "secret")
+		state.Click(hitDialogSubmit)
+		want := fmt.Sprintf(state.messages.VaultSaveFailedFmt, state.messages.Autofill.ErrorVaultLocked)
+		if state.modal != modalNewHost || state.dialogError != want || len(state.hosts) != 3 {
+			t.Fatalf("locked submit: modal=%d error=%q hosts=%d", state.modal, state.dialogError, len(state.hosts))
+		}
+	})
+
+	t.Run("unavailable", func(t *testing.T) {
+		_, options := newWorld(t)
+		options.Keystore = &memKeys{unavailable: true}
+		state := newTestState(t, options)
+		fillNewHost(state, "Edge", "edge.example.com", "ops", "secret")
+		state.Click(hitDialogSubmit)
+		want := fmt.Sprintf(state.messages.VaultSaveFailedFmt, state.messages.VaultUnavailable)
+		if state.modal != modalNewHost || state.dialogError != want || len(state.hosts) != 3 {
+			t.Fatalf("unavailable submit: modal=%d error=%q hosts=%d", state.modal, state.dialogError, len(state.hosts))
+		}
+	})
+}
+
+func TestCopyHostNeedsAnUnlockedVaultBeforeItCanPromiseToCopyThePassword(t *testing.T) {
+	state := newTestState(t, testOptions(t))
+	if err := state.secrets.vault.Set(prodPasswordName, "source secret"); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.secrets.vault.SetMasterPassword("a master password"); err != nil {
+		t.Fatal(err)
+	}
+	state.secrets.vault.Lock()
+	clickHostAction(state, hitCopyHost)
+	state.editor.address = text.Editor{}
+	typeInto(state, hitDialogAddress, "prod-copy.example.com")
+	state.Click(hitDialogSubmit)
+
+	want := fmt.Sprintf(state.messages.VaultSaveFailedFmt, state.messages.Autofill.ErrorVaultLocked)
+	if state.modal != modalNewHost || state.dialogError != want || len(state.hosts) != 3 {
+		t.Fatalf("locked copy: modal=%d error=%q hosts=%d", state.modal, state.dialogError, len(state.hosts))
+	}
+}
+
+func TestPasswordFieldIsNotPartOfTheHostConfiguration(t *testing.T) {
+	options := testOptions(t)
+	state := newTestState(t, options)
+	fillNewHost(state, "Edge", "edge.example.com", "ops", "correct horse")
+	state.Click(hitDialogSubmit)
+	host := state.hosts[len(state.hosts)-1]
+	if strings.Contains(fmt.Sprintf("%+v", host), "correct horse") {
+		t.Fatalf("host configuration exposed the password: %+v", host)
+	}
+	restarted := newTestState(t, options)
+	if restored := restarted.hosts[len(restarted.hosts)-1]; strings.Contains(fmt.Sprintf("%+v", restored), "correct horse") {
+		t.Fatalf("persisted host configuration exposed the password: %+v", restored)
+	}
+}
 
 func TestEditHostReusesDialogAndPersists(t *testing.T) {
 	options := testOptions(t)
