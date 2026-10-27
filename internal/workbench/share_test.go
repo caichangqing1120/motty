@@ -101,6 +101,63 @@ func TestANewTabOnAConnectedHostSharesToo(t *testing.T) {
 	}
 }
 
+func TestContainerTabSharesOnlyItsSourceAndOpensIndependentPTY(t *testing.T) {
+	world, options := newSharingWorld(t)
+	state := newTestState(t, options)
+	original := world.connectFirst(t, state)
+	source, ok := state.sessionByIDPointer(state.activeSessionID)
+	if !ok {
+		t.Fatal("no active source session")
+	}
+	source.term.live = true
+	const command = "docker exec -it 0f1e2d3c4b5a /bin/sh"
+	if err := state.openContainerTab(source.ID, "web", command); err != nil {
+		t.Fatal(err)
+	}
+	if len(world.conns) != 1 || len(world.shared) != 1 || len(state.sessions) != 2 {
+		t.Fatalf("dials=%d shares=%d tabs=%d", len(world.conns), len(world.shared), len(state.sessions))
+	}
+	newTab := &state.sessions[1]
+	if !newTab.shared || newTab.ID == source.ID || state.activeSessionID != newTab.ID || newTab.term == source.term ||
+		len(world.shared[0].configs) != 1 || world.shared[0].configs[0].Command != command || len(original.configs) != 1 || original.configs[0].Command != "" {
+		t.Fatalf("container tab=%+v shared configs=%+v original configs=%+v", newTab, world.shared[0].configs, original.configs)
+	}
+	if state.canReconnect(newTab) {
+		t.Fatal("command tab must not silently redial its source as a normal host")
+	}
+}
+
+func TestContainerTabDoesNotDialAgainWhenSharingIsRefused(t *testing.T) {
+	world, options := newSharingWorld(t)
+	state := newTestState(t, options)
+	world.connectFirst(t, state)
+	source := state.activeSessionID
+	state.sessions[0].term.live = true
+	world.refuse = true
+	if err := state.openContainerTab(source, "web", "docker exec -it 0f1e2d3c4b5a /bin/sh"); err == nil {
+		t.Fatal("a refused share silently connected again")
+	}
+	if len(world.conns) != 1 || len(world.shared) != 0 || len(state.sessions) != 1 || state.activeSessionID != source {
+		t.Fatalf("dials=%d shares=%d tabs=%d active=%d", len(world.conns), len(world.shared), len(state.sessions), state.activeSessionID)
+	}
+}
+
+func TestContainerTabDoesNotReconnectAsAnOrdinarySSHHost(t *testing.T) {
+	world, options := newSharingWorld(t)
+	state := newTestState(t, options)
+	world.connectFirst(t, state)
+	state.sessions[0].term.live = true
+	if err := state.openContainerTab(state.activeSessionID, "web", "docker exec -it 0f1e2d3c4b5a /bin/sh"); err != nil {
+		t.Fatal(err)
+	}
+	tab := &state.sessions[1]
+	state.connectionReconnect = reconnectForever
+	state.updateReconnect(tab, sshconn.Status{Phase: sshconn.PhaseClosed, Err: sshconn.ErrDisconnected})
+	if tab.reconnectPending || state.reconnectWaiters != 0 || len(world.conns) != 1 {
+		t.Fatalf("container tab scheduled another login: pending=%v waiters=%d dials=%d", tab.reconnectPending, state.reconnectWaiters, len(world.conns))
+	}
+}
+
 func TestAChangedEffectiveProxyPolicyNeverSharesTheOldConnection(t *testing.T) {
 	tests := []struct {
 		name        string
