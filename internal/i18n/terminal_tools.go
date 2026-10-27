@@ -452,6 +452,7 @@ type ToolsMessages struct {
 	RemoteEnterShell                string
 	RemoteErrNoShell                string
 	RemoteShellRequiresRunning      string
+	RemoteShellUnsupportedHost      string
 	RemoteRemove                    string
 	RemotePull                      string
 	RemotePullTitle                 string

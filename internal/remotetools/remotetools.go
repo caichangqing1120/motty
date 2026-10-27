@@ -375,13 +375,28 @@ func ShellCommand(ctx context.Context, runner Runner, id string) (string, error)
 	if !containerIDPattern.MatchString(id) {
 		return "", fmt.Errorf("remotetools: %q is not a container id", id)
 	}
+	if len(id) != 64 {
+		output, err := runner.RunCommand(ctx, "docker inspect --format '{{.Id}}' "+id+" 2>&1", maxOutput)
+		if err != nil {
+			message, _, _ := strings.Cut(strings.TrimSpace(string(output)), "\n")
+			if message != "" {
+				return "", &Failure{Message: message, Err: err}
+			}
+			return "", err
+		}
+		id = strings.TrimSpace(string(output))
+		if len(id) != 64 || !containerIDPattern.MatchString(id) {
+			return "", ErrMalformed
+		}
+	}
 	for _, shell := range [...]string{"sh", "bash", "ash"} {
 		output, err := runner.RunCommand(ctx, "docker exec "+id+" "+shell+" -c : 2>&1", maxOutput)
 		if err == nil {
 			return "docker exec -it " + id + " " + shell, nil
 		}
 		message := strings.ToLower(string(output))
-		if strings.Contains(message, "executable file not found") || strings.Contains(message, "no such file or directory") && strings.Contains(message, "exec") {
+		if strings.Contains(message, "exec: \""+shell+"\"") &&
+			(strings.Contains(message, "executable file not found") || strings.Contains(message, "no such file or directory")) {
 			continue
 		}
 		if line, _, found := strings.Cut(strings.TrimSpace(string(output)), "\n"); found {

@@ -1886,7 +1886,7 @@ func (state *State) openHostSession(host Host) *Session {
 	for index := range state.sessions {
 		session := &state.sessions[index]
 		// A saved host owns its tab; a typed target is reused by its address.
-		if session.HostID != host.ID || host.ID == 0 && session.Address != address {
+		if session.containerCommand != "" || session.HostID != host.ID || host.ID == 0 && session.Address != address {
 			continue
 		}
 		state.activeSessionID = session.ID

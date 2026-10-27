@@ -152,7 +152,7 @@ func (state *State) openRemoteTools(session *Session) {
 	if !state.remoteToolsOffered(session) {
 		return
 	}
-	state.remote = remoteToolsView{session: session.ID, title: session.Title, tab: state.remote.tab, sort: state.remote.sort}
+	state.remote = remoteToolsView{session: session.ID, title: session.Title, tab: state.remote.tab, sort: state.remote.sort, serial: state.remote.serial + 1}
 	state.modal = modalRemoteTools
 	state.refreshRemoteTools()
 }
@@ -306,6 +306,11 @@ func (state *State) clickRemoteTools(id ui.ID) {
 		}
 		state.followContainerLog(container)
 	case id == hitRemoteShell && view.tab == remoteContainers:
+		source, ok := state.remoteSession()
+		if !ok || source.host.System == sshconn.SystemWindows {
+			view.status, view.failed = m.RemoteShellUnsupportedHost, true
+			return
+		}
 		container, ok := state.selectedContainer()
 		if !ok || !container.Running() {
 			view.status, view.failed = m.RemoteShellRequiresRunning, true
@@ -462,7 +467,7 @@ func (state *State) refreshRemoteTools() {
 		return
 	}
 	view.serial++
-	serial, tab, key := view.serial, view.tab, view.sort
+	serial, tab, key, sourceID := view.serial, view.tab, view.sort, session.ID
 	view.loading, view.failed, view.status = true, false, state.messages.Tools.RemoteLoading
 	runner := remotetools.Runner(session.conn)
 	go func() {
@@ -486,7 +491,7 @@ func (state *State) refreshRemoteTools() {
 		}
 		state.aiPost(func(state *State) {
 			view := &state.remote
-			if view.serial != serial {
+			if view.serial != serial || view.session != sourceID || view.tab != tab || state.modal != modalRemoteTools {
 				return
 			}
 			view.loading = false
@@ -533,7 +538,7 @@ func (state *State) runRemoteAction(done string, action func(context.Context, re
 		return
 	}
 	view.serial++
-	serial := view.serial
+	serial, tab, sourceID := view.serial, view.tab, session.ID
 	view.loading, view.failed, view.status = true, false, state.messages.Tools.RemoteLoading
 	runner := remotetools.Runner(session.conn)
 	go func() {
@@ -542,7 +547,7 @@ func (state *State) runRemoteAction(done string, action func(context.Context, re
 		err := action(ctx, runner)
 		state.aiPost(func(state *State) {
 			view := &state.remote
-			if view.serial != serial {
+			if view.serial != serial || view.session != sourceID || view.tab != tab || state.modal != modalRemoteTools {
 				return
 			}
 			if err != nil {
@@ -591,7 +596,7 @@ func (state *State) openContainerShell(container remotetools.Container) {
 		command, err := remotetools.ShellCommand(ctx, runner, container.ID)
 		state.aiPost(func(state *State) {
 			view := &state.remote
-			if state.modal != modalRemoteTools || view.serial != serial || view.session != sourceID {
+			if state.modal != modalRemoteTools || view.serial != serial || view.session != sourceID || view.tab != remoteContainers {
 				return
 			}
 			view.loading = false
@@ -660,7 +665,8 @@ func (state *State) rebuildRemoteRows() {
 func (state *State) paintRemoteTools(canvas *ui.Canvas, viewport ui.Rect) {
 	m, pal, theme := state.messages.Tools, state.pal, state.Theme()
 	view := &state.remote
-	if _, ok := state.remoteSession(); !ok {
+	source, ok := state.remoteSession()
+	if !ok {
 		state.closeModal()
 		return
 	}
@@ -802,7 +808,7 @@ func (state *State) paintRemoteTools(canvas *ui.Canvas, viewport ui.Rect) {
 		add(components.ButtonAction{ID: hitRemoteRestart, Label: m.RemoteRestart, Variant: components.ButtonOutline})
 		add(components.ButtonAction{ID: hitRemoteLogs, Label: m.RemoteLogs, Variant: components.ButtonOutline})
 		container, selected := state.selectedContainer()
-		add(components.ButtonAction{ID: hitRemoteShell, Label: m.RemoteEnterShell, Variant: components.ButtonOutline, Disabled: !selected || !container.Running() || view.loading})
+		add(components.ButtonAction{ID: hitRemoteShell, Label: m.RemoteEnterShell, Variant: components.ButtonOutline, Disabled: !selected || !container.Running() || view.loading || source.host.System == sshconn.SystemWindows})
 		add(components.ButtonAction{ID: hitRemoteRemove, Label: m.RemoteRemove, Variant: components.ButtonDestructive})
 	}
 	dialog.Actions(layout, actions[:count]...)

@@ -1332,6 +1332,7 @@ var chineseTools = ToolsMessages{
 	RemoteEnterShell:                "进入容器",
 	RemoteErrNoShell:                "容器中未找到可用的交互 Shell（sh、bash 或 ash）。",
 	RemoteShellRequiresRunning:      "只能进入正在运行的容器。",
+	RemoteShellUnsupportedHost:      "Windows SSH 主机的容器交互终端尚未支持。",
 	RemoteRemove:                    "删除",
 	RemotePull:                      "拉取镜像",
 	RemotePullTitle:                 "拉取镜像",

@@ -257,19 +257,26 @@ func TestContainersVersionFallbackIsNotUsedForModernOrDaemonFailures(t *testing.
 }
 
 type shellProbeRunner struct {
-	commands []string
-	missing  map[string]bool
-	refused  bool
+	commands     []string
+	missing      map[string]bool
+	refused      bool
+	runtimeError string
 }
 
 func (runner *shellProbeRunner) RunCommand(_ context.Context, command string, _ int) ([]byte, error) {
 	runner.commands = append(runner.commands, command)
+	if strings.HasPrefix(command, "docker inspect --format") {
+		return []byte("0f1e2d3c4b5a" + strings.Repeat("0", 52) + "\n"), nil
+	}
 	if runner.refused {
 		return []byte("permission denied while connecting to the Docker daemon"), errors.New("exit status 1")
 	}
+	if runner.runtimeError != "" {
+		return []byte(runner.runtimeError), errors.New("exit status 1")
+	}
 	for shell := range runner.missing {
 		if strings.Contains(command, " "+shell+" -c ") && runner.missing[shell] {
-			return []byte("OCI runtime exec failed: executable file not found"), errors.New("exit status 126")
+			return []byte(fmt.Sprintf("OCI runtime exec failed: exec: %q: executable file not found", shell)), errors.New("exit status 126")
 		}
 	}
 	return nil, nil
@@ -278,8 +285,10 @@ func (runner *shellProbeRunner) RunCommand(_ context.Context, command string, _ 
 func TestContainerShellUsesAPresentShWithoutLoginFlags(t *testing.T) {
 	runner := &shellProbeRunner{}
 	command, err := ShellCommand(context.Background(), runner, "0f1e2d3c4b5a")
-	if err != nil || command != "docker exec -it 0f1e2d3c4b5a sh" || len(runner.commands) != 1 ||
-		runner.commands[0] != "docker exec 0f1e2d3c4b5a sh -c : 2>&1" {
+	full := "0f1e2d3c4b5a" + strings.Repeat("0", 52)
+	if err != nil || command != "docker exec -it "+full+" sh" || len(runner.commands) != 2 ||
+		runner.commands[0] != "docker inspect --format '{{.Id}}' 0f1e2d3c4b5a 2>&1" ||
+		runner.commands[1] != "docker exec "+full+" sh -c : 2>&1" {
 		t.Fatalf("command=%q probe=%q err=%v", command, runner.commands, err)
 	}
 }
@@ -287,7 +296,8 @@ func TestContainerShellUsesAPresentShWithoutLoginFlags(t *testing.T) {
 func TestContainerShellFallsBackOnlyBeforeTheInteractiveSessionStarts(t *testing.T) {
 	runner := &shellProbeRunner{missing: map[string]bool{"sh": true}}
 	command, err := ShellCommand(context.Background(), runner, "0f1e2d3c4b5a")
-	if err != nil || command != "docker exec -it 0f1e2d3c4b5a bash" || len(runner.commands) != 2 {
+	full := "0f1e2d3c4b5a" + strings.Repeat("0", 52)
+	if err != nil || command != "docker exec -it "+full+" bash" || len(runner.commands) != 3 {
 		t.Fatalf("command=%q probes=%q err=%v", command, runner.commands, err)
 	}
 	runner.missing = map[string]bool{"sh": true, "bash": true, "ash": true}
@@ -307,8 +317,16 @@ func TestContainerShellRefusesBadIDsAndDaemonErrors(t *testing.T) {
 		t.Fatalf("invalid IDs reached the host: %q", runner.commands)
 	}
 	runner.refused = true
-	if command, err := ShellCommand(context.Background(), runner, "0f1e2d3c4b5a"); command != "" || err == nil || errors.Is(err, ErrNoShell) || len(runner.commands) != 1 {
+	if command, err := ShellCommand(context.Background(), runner, "0f1e2d3c4b5a"); command != "" || err == nil || errors.Is(err, ErrNoShell) || len(runner.commands) != 2 {
 		t.Fatalf("daemon error became no-shell: command=%q err=%v probes=%q", command, err, runner.commands)
+	}
+}
+
+func TestContainerShellDoesNotMisreportADeletedWorkingDirectoryAsNoShell(t *testing.T) {
+	runner := &shellProbeRunner{runtimeError: "OCI runtime exec failed: chdir to cwd /app: no such file or directory"}
+	command, err := ShellCommand(context.Background(), runner, "0f1e2d3c4b5a")
+	if command != "" || err == nil || errors.Is(err, ErrNoShell) || len(runner.commands) != 2 || !strings.Contains(err.Error(), "chdir to cwd") {
+		t.Fatalf("runtime failure hidden as shell absence: command=%q err=%v probes=%q", command, err, runner.commands)
 	}
 }
 

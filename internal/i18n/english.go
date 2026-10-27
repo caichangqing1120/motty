@@ -1332,6 +1332,7 @@ var englishTools = ToolsMessages{
 	RemoteEnterShell:                "Open Shell",
 	RemoteErrNoShell:                "No interactive shell (sh, bash or ash) is available in this container.",
 	RemoteShellRequiresRunning:      "Only running containers can open a shell.",
+	RemoteShellUnsupportedHost:      "Container shells on Windows SSH hosts are not supported yet.",
 	RemoteRemove:                    "Remove",
 	RemotePull:                      "Pull image",
 	RemotePullTitle:                 "Pull an image",
