@@ -201,6 +201,62 @@ func TestContainersVersionFallbackIsNotUsedForModernOrDaemonFailures(t *testing.
 	}
 }
 
+type shellProbeRunner struct {
+	commands []string
+	missing  map[string]bool
+	refused  bool
+}
+
+func (runner *shellProbeRunner) RunCommand(_ context.Context, command string, _ int) ([]byte, error) {
+	runner.commands = append(runner.commands, command)
+	if runner.refused {
+		return []byte("permission denied while connecting to the Docker daemon"), errors.New("exit status 1")
+	}
+	for shell := range runner.missing {
+		if strings.Contains(command, " "+shell+" -c ") && runner.missing[shell] {
+			return []byte("OCI runtime exec failed: executable file not found"), errors.New("exit status 126")
+		}
+	}
+	return nil, nil
+}
+
+func TestContainerShellUsesAPresentShWithoutLoginFlags(t *testing.T) {
+	runner := &shellProbeRunner{}
+	command, err := ShellCommand(context.Background(), runner, "0f1e2d3c4b5a")
+	if err != nil || command != "docker exec -it 0f1e2d3c4b5a sh" || len(runner.commands) != 1 ||
+		runner.commands[0] != "docker exec 0f1e2d3c4b5a sh -c : 2>&1" {
+		t.Fatalf("command=%q probe=%q err=%v", command, runner.commands, err)
+	}
+}
+
+func TestContainerShellFallsBackOnlyBeforeTheInteractiveSessionStarts(t *testing.T) {
+	runner := &shellProbeRunner{missing: map[string]bool{"sh": true}}
+	command, err := ShellCommand(context.Background(), runner, "0f1e2d3c4b5a")
+	if err != nil || command != "docker exec -it 0f1e2d3c4b5a bash" || len(runner.commands) != 2 {
+		t.Fatalf("command=%q probes=%q err=%v", command, runner.commands, err)
+	}
+	runner.missing = map[string]bool{"sh": true, "bash": true, "ash": true}
+	if command, err := ShellCommand(context.Background(), runner, "0f1e2d3c4b5a"); command != "" || !errors.Is(err, ErrNoShell) {
+		t.Fatalf("shell-less container returned %q, %v", command, err)
+	}
+}
+
+func TestContainerShellRefusesBadIDsAndDaemonErrors(t *testing.T) {
+	runner := &shellProbeRunner{}
+	for _, id := range []string{"web", "a;exit", "-f", "ABCDEF123456"} {
+		if command, err := ShellCommand(context.Background(), runner, id); command != "" || err == nil {
+			t.Fatalf("invalid ID %q: command=%q err=%v", id, command, err)
+		}
+	}
+	if len(runner.commands) != 0 {
+		t.Fatalf("invalid IDs reached the host: %q", runner.commands)
+	}
+	runner.refused = true
+	if command, err := ShellCommand(context.Background(), runner, "0f1e2d3c4b5a"); command != "" || err == nil || errors.Is(err, ErrNoShell) || len(runner.commands) != 1 {
+		t.Fatalf("daemon error became no-shell: command=%q err=%v probes=%q", command, err, runner.commands)
+	}
+}
+
 func TestContainerActionsOnlyTakeValidNames(t *testing.T) {
 	runner := &fixedRunner{}
 	for _, id := range []string{"", "web; rm -rf /", "$(reboot)", "a b", "-rf", strings.Repeat("a", 200), "web\nx"} {

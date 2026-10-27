@@ -448,6 +448,9 @@ type ToolsMessages struct {
 	RemoteStop                      string
 	RemoteRestart                   string
 	RemoteLogs                      string
+	RemoteEnterShell                string
+	RemoteErrNoShell                string
+	RemoteShellRequiresRunning      string
 	RemoteRemove                    string
 	RemotePull                      string
 	RemotePullTitle                 string

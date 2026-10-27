@@ -42,6 +42,7 @@ var (
 	hitRemoteStop          = tree.ID(remoteToolsHits, "remote-stop")
 	hitRemoteRestart       = tree.ID(remoteToolsHits, "remote-restart")
 	hitRemoteLogs          = tree.ID(remoteToolsHits, "remote-logs")
+	hitRemoteShell         = tree.ID(remoteToolsHits, "remote-shell")
 	hitRemoteRemove        = tree.ID(remoteToolsHits, "remote-remove")
 	hitRemotePull          = tree.ID(remoteToolsHits, "remote-pull")
 	hitRemoteCreate        = tree.ID(remoteToolsHits, "remote-create")
@@ -304,6 +305,13 @@ func (state *State) clickRemoteTools(id ui.ID) {
 			return
 		}
 		state.followContainerLog(container)
+	case id == hitRemoteShell && view.tab == remoteContainers:
+		container, ok := state.selectedContainer()
+		if !ok || !container.Running() {
+			view.status, view.failed = m.RemoteShellRequiresRunning, true
+			return
+		}
+		state.openContainerShell(container)
 	}
 }
 
@@ -555,12 +563,50 @@ func (state *State) remoteErrorText(err error) string {
 		return m.RemoteErrNoCompose
 	case errors.Is(err, remotetools.ErrNoDocker):
 		return m.RemoteErrNoDocker
+	case errors.Is(err, remotetools.ErrNoShell):
+		return m.RemoteErrNoShell
 	case errors.Is(err, remotetools.ErrUnsupported) && errors.As(err, &failure):
 		return fmt.Sprintf(m.RemoteErrUnsupportedFmt, failure.Message)
 	case errors.Is(err, context.DeadlineExceeded):
 		return fmt.Sprintf(m.RemoteErrFailedFmt, "timeout")
 	}
 	return fmt.Sprintf(m.RemoteErrFailedFmt, err)
+}
+
+func (state *State) openContainerShell(container remotetools.Container) {
+	view := &state.remote
+	session, ok := state.remoteSession()
+	if !ok {
+		return
+	}
+	view.serial++
+	serial, sourceID := view.serial, session.ID
+	view.loading, view.failed, view.status = true, false, state.messages.Tools.RemoteLoading
+	runner := remotetools.Runner(session.conn)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), remoteTimeout)
+		defer cancel()
+		command, err := remotetools.ShellCommand(ctx, runner, container.ID)
+		state.aiPost(func(state *State) {
+			view := &state.remote
+			if state.modal != modalRemoteTools || view.serial != serial || view.session != sourceID {
+				return
+			}
+			view.loading = false
+			if view.selected != container.ID || state.activeSessionID != sourceID {
+				return
+			}
+			if err == nil {
+				err = state.openContainerTab(sourceID, container.Name, command)
+			}
+			if err != nil {
+				view.failed, view.status = true, state.remoteErrorText(err)
+				return
+			}
+			view.serial++
+			state.closeModal()
+		})
+	}()
 }
 
 // followContainerLog types the log command into the session's terminal, where
@@ -753,6 +799,8 @@ func (state *State) paintRemoteTools(canvas *ui.Canvas, viewport ui.Rect) {
 		add(components.ButtonAction{ID: hitRemoteStop, Label: m.RemoteStop, Variant: components.ButtonOutline})
 		add(components.ButtonAction{ID: hitRemoteRestart, Label: m.RemoteRestart, Variant: components.ButtonOutline})
 		add(components.ButtonAction{ID: hitRemoteLogs, Label: m.RemoteLogs, Variant: components.ButtonOutline})
+		container, selected := state.selectedContainer()
+		add(components.ButtonAction{ID: hitRemoteShell, Label: m.RemoteEnterShell, Variant: components.ButtonOutline, Disabled: !selected || !container.Running() || view.loading})
 		add(components.ButtonAction{ID: hitRemoteRemove, Label: m.RemoteRemove, Variant: components.ButtonDestructive})
 	}
 	dialog.Actions(layout, actions[:count]...)

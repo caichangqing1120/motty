@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/vivaui/viva/ui"
 	"motty/internal/remotetools"
@@ -184,6 +185,114 @@ func TestRemoteToolsManageContainers(t *testing.T) {
 	state.Click(hitRemoteLogs)
 	if state.modal != modalNone || !strings.Contains(shell.typed(), "docker logs -f --tail 200 0f1e2d3c4b5a\r") {
 		t.Fatalf("modal %d, the terminal got %q", state.modal, shell.typed())
+	}
+}
+
+func TestRemoteToolsContainerShellOpensSharedTabWithoutTypingIntoOriginal(t *testing.T) {
+	world, options := newSharingWorld(t)
+	state := newTestState(t, options)
+	original := world.connectFirst(t, state)
+	source, _ := state.sessionByIDPointer(state.activeSessionID)
+	source.term.live = true
+	server := &remoteServer{failures: map[string]error{}}
+	original.runCommand = server.run
+	state.openRemoteTools(source)
+	state.Click(hitRemoteTabContainers)
+	waitFor(t, state, func() bool { return !state.remote.loading && len(state.remote.rows) == 2 })
+	state.Click(hitRemoteRowList.At(0)) // running web
+	var canvas ui.Canvas
+	state.Paint(&canvas, ui.Size{Width: 1400, Height: 900})
+	button, painted := hitByID(&canvas, hitRemoteShell)
+	if !painted || button.Disabled {
+		t.Fatalf("container Shell action missing or disabled: %+v, painted=%v", button, painted)
+	}
+	state.Click(hitRemoteShell)
+	waitFor(t, state, func() bool { return len(state.sessions) == 2 && state.modal == modalNone })
+	if len(world.conns) != 1 || len(world.shared) != 1 ||
+		len(original.shells) != 1 || len(world.shared[0].configs) != 1 ||
+		world.shared[0].configs[0].Command != "docker exec -it 0f1e2d3c4b5a sh" ||
+		server.ran("docker exec 0f1e2d3c4b5a sh -c :") != 1 {
+		t.Fatalf("dials=%d shares=%d originalShells=%d childConfigs=%+v probes=%q", len(world.conns), len(world.shared), len(original.shells), world.shared[0].configs, server.commands)
+	}
+}
+
+func TestRemoteToolsContainerShellRejectsStoppedSelection(t *testing.T) {
+	state, server, _ := openRemoteToolsDialog(t)
+	state.Click(hitRemoteTabContainers)
+	waitFor(t, state, func() bool { return !state.remote.loading })
+	state.Click(hitRemoteRowList.At(1)) // exited job
+	var canvas ui.Canvas
+	state.Paint(&canvas, ui.Size{Width: 1400, Height: 900})
+	button, painted := hitByID(&canvas, hitRemoteShell)
+	if !painted || !button.Disabled {
+		t.Fatalf("stopped container offered Shell: button=%+v painted=%v", button, painted)
+	}
+	state.Click(hitRemoteShell)
+	if server.ran("docker exec") != 0 || len(state.sessions) != 1 || state.modal != modalRemoteTools {
+		t.Fatalf("stopped container opened a Shell: probes=%q tabs=%d modal=%d", server.commands, len(state.sessions), state.modal)
+	}
+}
+
+func TestRemoteToolsContainerShellFailureDoesNotCreateATab(t *testing.T) {
+	world, options := newSharingWorld(t)
+	state := newTestState(t, options)
+	original := world.connectFirst(t, state)
+	source, _ := state.sessionByIDPointer(state.activeSessionID)
+	source.term.live = true
+	server := &remoteServer{failures: map[string]error{"docker exec": errors.New("exit status 1")}}
+	original.runCommand = server.run
+	state.openRemoteTools(source)
+	state.Click(hitRemoteTabContainers)
+	waitFor(t, state, func() bool { return !state.remote.loading && len(state.remote.rows) == 2 })
+	state.Click(hitRemoteRowList.At(0))
+	state.Click(hitRemoteShell)
+	waitFor(t, state, func() bool { return !state.remote.loading && state.remote.failed })
+	if len(state.sessions) != 1 || len(world.shared) != 0 || state.modal != modalRemoteTools {
+		t.Fatalf("failed probe opened tab: sessions=%d shares=%d modal=%d", len(state.sessions), len(world.shared), state.modal)
+	}
+}
+
+func TestRemoteToolsContainerShellIgnoresClosedDialogResult(t *testing.T) {
+	world, options := newSharingWorld(t)
+	notified := make(chan struct{}, 2)
+	options.Invalidate = func() {
+		select {
+		case notified <- struct{}{}:
+		default:
+		}
+	}
+	state := newTestState(t, options)
+	original := world.connectFirst(t, state)
+	source, _ := state.sessionByIDPointer(state.activeSessionID)
+	source.term.live = true
+	server := &remoteServer{failures: map[string]error{}}
+	started, release := make(chan struct{}), make(chan struct{})
+	original.runCommand = func(ctx context.Context, command string, limit int) ([]byte, error) {
+		if strings.HasPrefix(command, "docker exec") {
+			close(started)
+			<-release
+		}
+		return server.run(ctx, command, limit)
+	}
+	state.openRemoteTools(source)
+	state.Click(hitRemoteTabContainers)
+	waitFor(t, state, func() bool { return !state.remote.loading && len(state.remote.rows) == 2 })
+	state.Click(hitRemoteRowList.At(0))
+	state.Click(hitRemoteShell)
+	<-started
+	state.Click(hitRemoteClose)
+	for len(notified) > 0 {
+		<-notified
+	}
+	close(release)
+	select {
+	case <-notified:
+		state.Wake()
+	case <-time.After(2 * time.Second):
+		t.Fatal("probe result was never delivered")
+	}
+	if state.modal != modalNone || len(state.sessions) != 1 || len(world.shared) != 0 {
+		t.Fatalf("closed dialog's stale probe opened a tab: modal=%d tabs=%d shares=%d", state.modal, len(state.sessions), len(world.shared))
 	}
 }
 

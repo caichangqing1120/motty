@@ -26,6 +26,8 @@ var (
 	ErrUnsupported = errors.New("remotetools: this server's ps is not supported")
 	// ErrNoDocker means Docker is not installed on the server.
 	ErrNoDocker = errors.New("remotetools: docker is not installed")
+	// ErrNoShell means none of the supported interactive shells could start.
+	ErrNoShell = errors.New("remotetools: no supported shell inside this container")
 	// ErrMalformed means the output was not what the command prints.
 	ErrMalformed = errors.New("remotetools: unexpected output")
 )
@@ -308,6 +310,7 @@ func ParseContainers(output []byte) ([]Container, error) {
 }
 
 var namePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$`)
+var containerIDPattern = regexp.MustCompile(`^[0-9a-f]{12,64}$`)
 
 func validName(value string) bool { return namePattern.MatchString(value) }
 
@@ -349,4 +352,29 @@ func LogsCommand(id string) (string, bool) {
 		return "", false
 	}
 	return "docker logs -f --tail 200 " + id, true
+}
+
+// ShellCommand probes a fixed set of shells before opening a PTY. A shell's
+// later exit status belongs to the user and never triggers another candidate.
+func ShellCommand(ctx context.Context, runner Runner, id string) (string, error) {
+	if !containerIDPattern.MatchString(id) {
+		return "", fmt.Errorf("remotetools: %q is not a container id", id)
+	}
+	for _, shell := range [...]string{"sh", "bash", "ash"} {
+		output, err := runner.RunCommand(ctx, "docker exec "+id+" "+shell+" -c : 2>&1", maxOutput)
+		if err == nil {
+			return "docker exec -it " + id + " " + shell, nil
+		}
+		message := strings.ToLower(string(output))
+		if strings.Contains(message, "executable file not found") || strings.Contains(message, "no such file or directory") && strings.Contains(message, "exec") {
+			continue
+		}
+		if line, _, found := strings.Cut(strings.TrimSpace(string(output)), "\n"); found {
+			return "", &Failure{Message: line, Err: err}
+		} else if line != "" {
+			return "", &Failure{Message: line, Err: err}
+		}
+		return "", err
+	}
+	return "", ErrNoShell
 }
