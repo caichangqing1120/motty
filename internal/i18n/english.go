@@ -1290,6 +1290,7 @@ var englishTools = ToolsMessages{
 	RemoteConfirmDownFmt:            "Project %s will be stopped and its containers and networks removed (volumes are kept).",
 	RemoteDown:                      "Down",
 	RemoteErrNoCompose:              "This server has no docker compose plugin.",
+	RemoteErrComposeListUnsupported: "This Docker Compose version cannot list projects. Upgrade Compose to use this tab.",
 	RemoteReniceLower:               "Nice +10",
 	RemoteReniceNormal:              "Nice 0",
 	RemoteReniceHigher:              "Nice -5",

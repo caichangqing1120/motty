@@ -28,6 +28,25 @@ func (runner *fixedRunner) RunCommand(_ context.Context, command string, _ int) 
 	return []byte(runner.output), runner.err
 }
 
+type scriptedResult struct {
+	output string
+	err    error
+}
+
+type scriptedRunner struct {
+	commands []string
+	results  []scriptedResult
+}
+
+func (runner *scriptedRunner) RunCommand(_ context.Context, command string, _ int) ([]byte, error) {
+	runner.commands = append(runner.commands, command)
+	if len(runner.commands) > len(runner.results) {
+		return nil, fmt.Errorf("unexpected command %q", command)
+	}
+	result := runner.results[len(runner.commands)-1]
+	return []byte(result.output), result.err
+}
+
 func TestParsingTheProcessListSortsAndSkipsItsOwnPipeline(t *testing.T) {
 	output := "" +
 		"    1 root      0.1  0.2    10-02:03:04 /sbin/init splash\n" +
@@ -77,6 +96,42 @@ func TestTheProcessListRunsOnThisComputer(t *testing.T) {
 		if ownPipeline(process.Command) {
 			t.Fatalf("the listing's own process is in it: %+v", process)
 		}
+	}
+}
+
+func TestLegacyProcessFallbackKeepsCPUAndMemoryWithoutInventingElapsedTime(t *testing.T) {
+	runner := &scriptedRunner{results: []scriptedResult{
+		{output: "ps: invalid option -- e\n"},
+		{output: "USER PID %CPU %MEM VSZ RSS TTY STAT START TIME COMMAND\n" +
+			"root 2 1.5 2.3 1832 256 ? S 08:00 0:01 /sbin/init\n" +
+			"www 9 22.7 5.4 9182 128 ? S 08:15 0:02 nginx: worker\n"},
+	}}
+	got, err := Processes(context.Background(), runner, SortCPU)
+	if err != nil || len(got) != 2 || len(runner.commands) != 2 || got[0].PID != 9 ||
+		got[0].User != "www" || got[0].CPU != 22.7 || got[0].Memory != 5.4 || got[0].Command != "nginx: worker" || got[0].Elapsed != "" {
+		t.Fatalf("processes=%+v commands=%q err=%v", got, runner.commands, err)
+	}
+	runner = &scriptedRunner{results: []scriptedResult{{output: "ps: invalid option -- e\n"}, {output: "ps: invalid option -- a\n"}}}
+	if got, err := Processes(context.Background(), runner, SortCPU); len(got) != 0 || !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("unsupported ps returned rows=%+v err=%v", got, err)
+	}
+	runner = &scriptedRunner{results: []scriptedResult{
+		{output: "ps: invalid option -- e\n"},
+		{output: "root 2 1.5 2.3 1832 256 ? S 08:00 0:01 /sbin/init\nps: aborted\n", err: errors.New("exit status 1")},
+	}}
+	if got, err := Processes(context.Background(), runner, SortCPU); len(got) != 0 || err == nil {
+		t.Fatalf("partial failed ps output became successful rows=%+v err=%v", got, err)
+	}
+}
+
+func TestLegacyProcessDoesNotRetryPermissionErrors(t *testing.T) {
+	runner := &scriptedRunner{results: []scriptedResult{{output: "permission denied\n", err: errors.New("exit status 1")}}}
+	if _, err := Processes(context.Background(), runner, SortCPU); err == nil || len(runner.commands) != 1 {
+		t.Fatalf("permission error=%v commands=%q", err, runner.commands)
+	}
+	runner = &scriptedRunner{results: []scriptedResult{{output: " 2211 www 42.5 1.3 01:02:03 nginx: worker\n", err: errors.New("exit status 1")}}}
+	if got, err := Processes(context.Background(), runner, SortCPU); len(got) != 0 || err == nil {
+		t.Fatalf("failed modern ps returned partial success=%+v err=%v", got, err)
 	}
 }
 
@@ -307,6 +362,62 @@ func TestDockerObjectListingsBecomeRowsKeyedByWhatRemovesThem(t *testing.T) {
 	}
 }
 
+func TestLegacyResourceOptionalFieldsFallBackWithoutChangingKeys(t *testing.T) {
+	tests := []struct {
+		kind    Kind
+		missing string
+		legacy  string
+		key     string
+		name    string
+	}{
+		{Images, ".CreatedSince", "d4c45f66efc5|debian:bookworm-slim|74.9MB\n", "debian:bookworm-slim", "debian:bookworm-slim"},
+		{Volumes, ".Scope", "pgdata|local\r\n", "pgdata", "pgdata"},
+		{Networks, ".Scope", "4cb549b7e5e0|app_default|bridge\n", "4cb549b7e5e0", "app_default"},
+	}
+	for _, test := range tests {
+		t.Run(test.missing+test.name, func(t *testing.T) {
+			runner := &scriptedRunner{results: []scriptedResult{
+				{output: "Template parsing error: executing at <" + test.missing + ">: can't evaluate field " + strings.TrimPrefix(test.missing, ".") + " in type *formatter.context\n", err: errors.New("exit status 1")},
+				{output: test.legacy},
+			}}
+			rows, err := Resources(context.Background(), runner, test.kind)
+			if err != nil || len(rows) != 1 || len(runner.commands) != 2 || rows[0].Key != test.key || rows[0].Cells[0] != test.name ||
+				len(rows[0].Cells) < 3 || rows[0].Cells[len(rows[0].Cells)-1] != "" || strings.Contains(runner.commands[1], test.missing) {
+				t.Fatalf("rows=%+v commands=%q err=%v", rows, runner.commands, err)
+			}
+			if test.kind == Volumes && rows[0].Cells[1] != "local" {
+				t.Fatalf("Windows CRLF leaked into driver field: %+v", rows[0])
+			}
+		})
+	}
+}
+
+func TestLegacyResourceRetriesOnlyTemplateFieldFailures(t *testing.T) {
+	runner := &scriptedRunner{results: []scriptedResult{{output: "d4c45f66efc5|debian:bookworm-slim|74.9MB|2 weeks ago\n"}}}
+	if rows, err := Resources(context.Background(), runner, Images); err != nil || len(rows) != 1 || len(runner.commands) != 1 {
+		t.Fatalf("modern resources=%+v commands=%q err=%v", rows, runner.commands, err)
+	}
+	runner = &scriptedRunner{results: []scriptedResult{{output: "permission denied while connecting to the daemon", err: errors.New("exit status 1")}}}
+	if _, err := Resources(context.Background(), runner, Images); err == nil || len(runner.commands) != 1 {
+		t.Fatalf("daemon error=%v commands=%q", err, runner.commands)
+	}
+	runner = &scriptedRunner{results: []scriptedResult{
+		{output: "at <.CreatedSince>: can't evaluate field CreatedSince", err: errors.New("exit status 1")},
+		{output: "legacy format also failed", err: errors.New("exit status 1")},
+	}}
+	if _, err := Resources(context.Background(), runner, Images); err == nil || len(runner.commands) != 2 {
+		t.Fatalf("failed fallback=%v commands=%q", err, runner.commands)
+	}
+	runner = &scriptedRunner{results: []scriptedResult{{output: "Error response from daemon: No such file or directory", err: errors.New("exit status 1")}}}
+	if _, err := Resources(context.Background(), runner, Images); errors.Is(err, ErrNoDocker) {
+		t.Fatalf("daemon error misdiagnosed as a missing Docker executable: %v", err)
+	}
+	runner = &scriptedRunner{results: []scriptedResult{{output: "sh: 1: docker: not found", err: errors.New("exit status 127")}}}
+	if _, err := Resources(context.Background(), runner, Images); !errors.Is(err, ErrNoDocker) {
+		t.Fatalf("missing Docker executable was not identified: %v", err)
+	}
+}
+
 func TestRemovingAnObjectRunsOneFixedCommandAndRefusesUnsafeNames(t *testing.T) {
 	runner := &fixedRunner{}
 	for kind, want := range map[Kind]string{Images: "docker rmi web:1 2>&1", Volumes: "docker volume rm web:1 2>&1", Networks: "docker network rm web:1 2>&1"} {
@@ -362,6 +473,28 @@ func TestComposeNeedsThePluginAndActionsRefuseUnsafeNames(t *testing.T) {
 		if err := DoCompose(context.Background(), runner, ComposeStart, name); err == nil || runner.asked != "" {
 			t.Errorf("%q reached the server: %q", name, runner.asked)
 		}
+	}
+}
+
+func TestComposeCompatibilityReportsUnsupportedFormatRatherThanEmptyProjects(t *testing.T) {
+	runner := &scriptedRunner{results: []scriptedResult{{output: "unknown flag: --format\n", err: errors.New("exit status 1")}}}
+	if projects, err := Compose(context.Background(), runner); len(projects) != 0 || !errors.Is(err, ErrComposeListUnsupported) || len(runner.commands) != 1 {
+		t.Fatalf("projects=%+v err=%v commands=%q", projects, err, runner.commands)
+	}
+	runner = &scriptedRunner{results: []scriptedResult{{output: "docker: 'compose' is not a docker command", err: errors.New("exit status 1")}}}
+	if _, err := Compose(context.Background(), runner); !errors.Is(err, ErrNoCompose) {
+		t.Fatalf("missing plugin reported as an unsupported format: %v", err)
+	}
+	runner = &scriptedRunner{results: []scriptedResult{{output: "Name Status Config Files\nweb running /srv/web/compose.yml\n"}}}
+	if projects, err := Compose(context.Background(), runner); len(projects) != 0 || !errors.Is(err, ErrMalformed) {
+		t.Fatalf("non-JSON projects=%+v err=%v", projects, err)
+	}
+	if projects, err := ParseCompose([]byte("null")); len(projects) != 0 || !errors.Is(err, ErrMalformed) {
+		t.Fatalf("null was interpreted as an empty project list: projects=%+v err=%v", projects, err)
+	}
+	runner = &scriptedRunner{results: []scriptedResult{{output: "unknown command \"ls\" for \"docker compose\"", err: errors.New("exit status 1")}}}
+	if _, err := Compose(context.Background(), runner); !errors.Is(err, ErrComposeListUnsupported) {
+		t.Fatalf("old compose plugin without ls was misdiagnosed: %v", err)
 	}
 }
 

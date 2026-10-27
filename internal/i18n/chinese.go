@@ -1290,6 +1290,7 @@ var chineseTools = ToolsMessages{
 	RemoteConfirmDownFmt:            "项目 %s 将被停止，其容器和网络会被移除（卷保留）。",
 	RemoteDown:                      "停用",
 	RemoteErrNoCompose:              "此服务器没有 docker compose 插件。",
+	RemoteErrComposeListUnsupported: "当前 Docker Compose 版本不支持列出项目；请升级后重试。",
 	RemoteReniceLower:               "降低优先级 +10",
 	RemoteReniceNormal:              "恢复 0",
 	RemoteReniceHigher:              "提高优先级 -5",

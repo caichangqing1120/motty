@@ -561,6 +561,8 @@ func (state *State) remoteErrorText(err error) string {
 	switch {
 	case errors.Is(err, remotetools.ErrNoCompose):
 		return m.RemoteErrNoCompose
+	case errors.Is(err, remotetools.ErrComposeListUnsupported):
+		return m.RemoteErrComposeListUnsupported
 	case errors.Is(err, remotetools.ErrNoDocker):
 		return m.RemoteErrNoDocker
 	case errors.Is(err, remotetools.ErrNoShell):

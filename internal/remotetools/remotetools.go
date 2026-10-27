@@ -106,7 +106,22 @@ func ownPipeline(command string) bool {
 // Processes lists the busiest processes, most first.
 func Processes(ctx context.Context, runner Runner, key SortKey) ([]Process, error) {
 	output, err := runner.RunCommand(ctx, processCommand(key), maxOutput)
-	if len(output) == 0 && err != nil {
+	if unsupportedPSOptions(output) {
+		output, err = runner.RunCommand(ctx, legacyProcessCommand, maxOutput)
+		if err != nil {
+			if unsupportedPSOptions(output) {
+				line, _, _ := strings.Cut(strings.TrimSpace(string(output)), "\n")
+				return nil, &Failure{Message: line, Err: ErrUnsupported}
+			}
+			return nil, err
+		}
+		return parseLegacyProcesses(output, key)
+	}
+	if err != nil {
+		if text := strings.TrimSpace(string(output)); text != "" {
+			line, _, _ := strings.Cut(text, "\n")
+			return nil, &Failure{Message: line, Err: err}
+		}
 		return nil, err
 	}
 	list, parseErr := ParseProcesses(output, key)
@@ -233,7 +248,7 @@ func Containers(ctx context.Context, runner Runner) ([]Container, error) {
 	}
 	if err != nil {
 		text := strings.TrimSpace(string(output))
-		if strings.Contains(text, "not found") || strings.Contains(text, "No such file") {
+		if missingDockerCLI(output) {
 			return nil, ErrNoDocker
 		}
 		if text == "" {
