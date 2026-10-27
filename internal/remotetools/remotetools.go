@@ -218,10 +218,17 @@ type Container struct {
 func (container Container) Running() bool { return container.State == "running" }
 
 const containerCommand = "docker ps -a --format '{{.ID}}|{{.Names}}|{{.Image}}|{{.State}}|{{.Status}}' 2>&1"
+const legacyContainerCommand = "docker ps -a --format '{{.ID}}|{{.Names}}|{{.Image}}|{{.Status}}' 2>&1"
 
 // Containers lists every container, running ones first.
 func Containers(ctx context.Context, runner Runner) ([]Container, error) {
 	output, err := runner.RunCommand(ctx, containerCommand, maxOutput)
+	if err != nil && strings.Contains(string(output), "<.State>") && strings.Contains(string(output), "can't evaluate field State") {
+		output, err = runner.RunCommand(ctx, legacyContainerCommand, maxOutput)
+		if err == nil {
+			return parseLegacyContainers(output)
+		}
+	}
 	if err != nil {
 		text := strings.TrimSpace(string(output))
 		if strings.Contains(text, "not found") || strings.Contains(text, "No such file") {
@@ -234,6 +241,49 @@ func Containers(ctx context.Context, runner Runner) ([]Container, error) {
 		return nil, &Failure{Message: line, Err: err}
 	}
 	return ParseContainers(output)
+}
+
+func stateFromStatus(status string) string {
+	status = strings.ToLower(strings.TrimSpace(status))
+	switch {
+	case strings.HasPrefix(status, "up"):
+		if strings.Contains(status, "(paused)") {
+			return "paused"
+		}
+		return "running"
+	case strings.HasPrefix(status, "exited"):
+		return "exited"
+	case strings.HasPrefix(status, "created"):
+		return "created"
+	case strings.HasPrefix(status, "restarting"):
+		return "restarting"
+	case strings.HasPrefix(status, "dead"):
+		return "dead"
+	case strings.HasPrefix(status, "removing"):
+		return "removing"
+	default:
+		return "unknown"
+	}
+}
+
+func parseLegacyContainers(output []byte) ([]Container, error) {
+	var list []Container
+	for _, line := range strings.Split(string(output), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "|", 4)
+		if len(parts) != 4 || !validName(parts[0]) {
+			return nil, &Failure{Message: line, Err: ErrMalformed}
+		}
+		list = append(list, Container{ID: parts[0], Name: parts[1], Image: parts[2], State: stateFromStatus(parts[3]), Status: parts[3]})
+		if len(list) == maxItems {
+			break
+		}
+	}
+	sort.SliceStable(list, func(a, b int) bool { return list[a].Running() && !list[b].Running() })
+	return list, nil
 }
 
 // ParseContainers reads the listing command's output.

@@ -127,6 +127,80 @@ func TestContainersExplainAMissingOrRefusedDocker(t *testing.T) {
 	}
 }
 
+type versionedDockerRunner struct {
+	commands  []string
+	modern    string
+	modernErr error
+	legacy    string
+	legacyErr error
+}
+
+func (runner *versionedDockerRunner) RunCommand(_ context.Context, command string, _ int) ([]byte, error) {
+	runner.commands = append(runner.commands, command)
+	if strings.Contains(command, "{{.State}}") {
+		return []byte(runner.modern), runner.modernErr
+	}
+	return []byte(runner.legacy), runner.legacyErr
+}
+
+func TestContainersLegacyStateTemplateFallsBackWithoutLosingRows(t *testing.T) {
+	runner := &versionedDockerRunner{
+		modern:    "Template parsing error: template: :1:32: executing \"\" at <.State>: can't evaluate field State in type *formatter.containerContext\n",
+		modernErr: errors.New("exit status 1"),
+		legacy: "a1b2c3d4e5f6|job|alpine:3.19|Exited (0) 3 days ago\n" +
+			"0f1e2d3c4b5a|web|registry.example.com/nginx:1.27|Up 2 hours (healthy)\n",
+	}
+	got, err := Containers(context.Background(), runner)
+	if err != nil || len(got) != 2 || len(runner.commands) != 2 ||
+		got[0].Name != "web" || got[0].Image != "registry.example.com/nginx:1.27" || got[0].State != "running" ||
+		got[1].ID != "a1b2c3d4e5f6" || got[1].State != "exited" || strings.Contains(runner.commands[1], "{{.State}}") {
+		t.Fatalf("rows=%+v commands=%q err=%v", got, runner.commands, err)
+	}
+}
+
+func TestContainersLegacyStatesAndMalformedFallback(t *testing.T) {
+	fixture := "000000000001|up|image:1|Up 5 minutes (healthy)\n" +
+		"000000000002|paused|image:2|Up 5 minutes (Paused)\n" +
+		"000000000003|created|image:3|Created\n" +
+		"000000000004|restart|image:4|Restarting (1) 10 seconds ago\n" +
+		"000000000005|dead|image:5|Dead\n" +
+		"000000000006|other|image:6|Something New\n"
+	runner := &versionedDockerRunner{modern: "template error at <.State>: can't evaluate field State in type *formatter.containerContext", modernErr: errors.New("exit status 1"), legacy: fixture}
+	got, err := Containers(context.Background(), runner)
+	if err != nil || len(got) != 6 {
+		t.Fatalf("rows=%+v err=%v", got, err)
+	}
+	states := map[string]string{"up": "running", "paused": "paused", "created": "created", "restart": "restarting", "dead": "dead", "other": "unknown"}
+	for _, row := range got {
+		if row.State != states[row.Name] {
+			t.Errorf("%s: state=%s want=%s", row.Name, row.State, states[row.Name])
+		}
+	}
+	runner.legacy = "this is not a container row\n"
+	if _, err := Containers(context.Background(), runner); !errors.Is(err, ErrMalformed) {
+		t.Fatalf("malformed fallback became empty list: %v", err)
+	}
+}
+
+func TestContainersVersionFallbackIsNotUsedForModernOrDaemonFailures(t *testing.T) {
+	modern := &versionedDockerRunner{modern: "0f1e2d3c4b5a|web|nginx:1|running|Up 1 hour\n"}
+	if got, err := Containers(context.Background(), modern); err != nil || len(got) != 1 || len(modern.commands) != 1 {
+		t.Fatalf("modern rows=%+v commands=%q err=%v", got, modern.commands, err)
+	}
+	modern.modern = ""
+	if got, err := Containers(context.Background(), modern); err != nil || len(got) != 0 || len(modern.commands) != 2 {
+		t.Fatalf("empty rows=%+v commands=%q err=%v", got, modern.commands, err)
+	}
+	daemon := &versionedDockerRunner{modern: "Cannot connect to the Docker daemon", modernErr: errors.New("exit status 1")}
+	if _, err := Containers(context.Background(), daemon); err == nil || len(daemon.commands) != 1 {
+		t.Fatalf("daemon error=%v commands=%q", err, daemon.commands)
+	}
+	failed := &versionedDockerRunner{modern: "error at <.State>: can't evaluate field State", modernErr: errors.New("exit status 1"), legacy: "daemon unavailable", legacyErr: errors.New("exit status 1")}
+	if _, err := Containers(context.Background(), failed); err == nil || len(failed.commands) != 2 {
+		t.Fatalf("failed fallback error=%v commands=%q", err, failed.commands)
+	}
+}
+
 func TestContainerActionsOnlyTakeValidNames(t *testing.T) {
 	runner := &fixedRunner{}
 	for _, id := range []string{"", "web; rm -rf /", "$(reboot)", "a b", "-rf", strings.Repeat("a", 200), "web\nx"} {
