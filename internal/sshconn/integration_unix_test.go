@@ -107,7 +107,7 @@ func TestIntegrationReportsRealShellDirectoriesWithoutChangingProfiles(t *testin
 				t.Fatal(err)
 			}
 			shell, err := localshell.Start(localshell.Config{
-				Shell: "/bin/sh", Args: []string{"-c", integrationCommand(program, "pty-test-token")}, Dir: home,
+				Shell: "/bin/sh", Args: []string{"-c", "umask 022; " + integrationCommand(program, "pty-test-token")}, Dir: home,
 				Env:  []string{"HOME=" + home, "ZDOTDIR=" + home, "SHELL=" + program, "TMPDIR=" + runtimeDir},
 				Cols: 120, Rows: 24,
 			})
@@ -117,8 +117,9 @@ func TestIntegrationReportsRealShellDirectoriesWithoutChangingProfiles(t *testin
 			t.Cleanup(shell.Close)
 			screen := term.New(120, 24, 0)
 			screen.SetPromptToken("pty-test-token")
-			ready, output := 0, ""
+			ready, commandStarts, output := 0, 0, ""
 			screen.SetPromptReady(func() { ready++ })
+			screen.SetCommandStart(func() { commandStarts++ })
 			await := func(want string, predicate func() bool) {
 				t.Helper()
 				deadline := time.Now().Add(8 * time.Second)
@@ -134,15 +135,31 @@ func TestIntegrationReportsRealShellDirectoriesWithoutChangingProfiles(t *testin
 				t.Fatalf("waiting for %s: %q", want, output)
 			}
 			await("initial ready prompt", func() bool { return ready > 0 })
+			version, _ := exec.Command(program, "--version").Output()
+			commandReporting := name == "zsh" || strings.Contains(string(version), "version 5.") || strings.Contains(string(version), "version 6.")
+			if commandReporting && commandStarts == 0 {
+				t.Fatal("supported shell did not announce command-start reporting")
+			}
 			if !strings.Contains(output, "user-profile-loaded") || !strings.Contains(output, "user-hook") {
 				t.Fatalf("profile/hook lost: %q", output)
 			}
-			before := ready
+			shell.Write([]byte(": > \"$HOME/mask-file\"; mkdir \"$HOME/mask-dir\"; printf 'mask-check-done\\n'\r"))
+			await("file creation", func() bool { return strings.Contains(output, "mask-check-done\r\n") })
+			for name, mode := range map[string]os.FileMode{"mask-file": 0644, "mask-dir": 0755} {
+				info, err := os.Stat(filepath.Join(home, name))
+				if err != nil || info.Mode().Perm() != mode {
+					t.Fatalf("inherited umask changed for %s: info=%v, err=%v; want %04o", name, info, err, mode)
+				}
+			}
+			before, startsBefore := ready, commandStarts
 			shell.Write([]byte("cd -- '" + strings.ReplaceAll(target, "'", "'\\''") + "'\r"))
 			await("cd report", func() bool {
 				cwd, ok := screen.WorkingDirectory()
 				return ok && cwd.Path == target && ready > before
 			})
+			if commandReporting && commandStarts <= startsBefore {
+				t.Fatal("an actual cd was not preceded by a command-start marker")
+			}
 			if strings.Count(output, "user-hook\r\n") < 2 {
 				t.Fatalf("hook was overwritten: %q", output)
 			}

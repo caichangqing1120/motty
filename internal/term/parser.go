@@ -430,6 +430,9 @@ func (t *Terminal) endOSC() {
 		if string(text) == "B"+suffix && t.promptReadyFn != nil {
 			t.promptReadyFn()
 		}
+		if string(text) == "C"+suffix && t.commandStartFn != nil {
+			t.commandStartFn()
+		}
 	case 777:
 		t.osc777(text)
 	case 10, 11:

@@ -48,15 +48,17 @@ func integrationCommand(shell string, tokens ...string) string {
 		return ""
 	}
 	quote := func(value string) string { return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'" }
-	script := `umask 077
-_motty_dir=$(mktemp -d "${TMPDIR:-/tmp}/motty-shell.XXXXXXXX") || exec "$1" -l
+	script := `_motty_umask=$(umask)
+umask 077
+_motty_dir=$(mktemp -d "${TMPDIR:-/tmp}/motty-shell.XXXXXXXX") || { umask "$_motty_umask"; exec "$1" -l; }
 trap 'rm -rf -- "$_motty_dir"' 0
 trap 'exit 129' HUP
 trap 'exit 143' TERM
 `
 	if name == "bash" {
 		script += "cat > \"$_motty_dir/bashrc\" <<'MOTTY_BASH'\n" + bashIntegration + "\nMOTTY_BASH\n" +
-			`MOTTY_SHELL_DIR=$_motty_dir "$1" --rcfile "$_motty_dir/bashrc" -i
+			`umask "$_motty_umask"
+MOTTY_SHELL_DIR=$_motty_dir "$1" --rcfile "$_motty_dir/bashrc" -i
 `
 	} else {
 		script += `cat > "$_motty_dir/.zshenv" <<'MOTTY_ENV'
@@ -87,6 +89,7 @@ if [[ -z $_motty_user_zdotdir_set && $ZDOTDIR == $HOME ]]; then unset ZDOTDIR; f
 rm -rf -- "$_motty_runtime"
 unset _motty_runtime _motty_user_zdotdir _motty_user_zdotdir_set
 MOTTY_ZSH
+umask "$_motty_umask"
 MOTTY_USER_ZDOTDIR=${ZDOTDIR-$HOME} MOTTY_USER_ZDOTDIR_SET=${ZDOTDIR+x} ZDOTDIR=$_motty_dir "$1" -l
 `
 	}
@@ -125,10 +128,18 @@ case $(declare -p PROMPT_COMMAND 2>/dev/null) in
     'declare -a '*) PROMPT_COMMAND+=(__motty_report) ;;
     *) PROMPT_COMMAND=${PROMPT_COMMAND:+$PROMPT_COMMAND$'\n'}__motty_report ;;
 esac
+if (( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 4) )); then
+    PS0=$'\e]133;C__MOTTY_SUFFIX__\a'${PS0-}
+    printf '\033]133;C__MOTTY_SUFFIX__\007'
+fi
 rm -rf -- "$_motty_runtime"
 unset _motty_runtime _motty_profile`
 
 const zshIntegration = directoryReportFunction + `
 _motty_prompt_marker=$'%{\e]133;B__MOTTY_SUFFIX__\a%}'
 typeset -ga precmd_functions
-precmd_functions+=(__motty_report)`
+precmd_functions+=(__motty_report)
+__motty_command_start() { printf '\033]133;C__MOTTY_SUFFIX__\007'; }
+typeset -ga preexec_functions
+preexec_functions=(__motty_command_start "${preexec_functions[@]}")
+__motty_command_start`

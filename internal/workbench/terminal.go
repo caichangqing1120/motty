@@ -74,6 +74,8 @@ type terminal struct {
 	promptVersion         uint64 // invalidates a reverse navigation while its directory is being listed
 	folderToken           string
 	folderIntegrationSeen bool
+	commandReporting      bool
+	submittedLines        int
 	blink                 cursorBlink
 	wheelX                float32 // horizontal wheel travel not yet worth a whole cell
 	wheelY                float32 // vertical wheel travel not yet worth a whole cell
@@ -240,7 +242,7 @@ func (t *terminal) syncRemaining() time.Duration {
 
 func (state *State) configureTerminal(session *Session) {
 	if session.term.folderToken == "" {
-		session.term.folderToken = rand.Text()
+		session.term.resetFolderSync()
 	}
 	session.term.screen.SetPromptToken(session.term.folderToken)
 	session.term.openLink = state.openTerminalLink
@@ -275,9 +277,29 @@ func (state *State) configureTerminal(session *Session) {
 	session.term.screen.SetPromptReady(func() {
 		if current, ok := state.sessionByIDPointer(sessionID); ok && current.term != nil {
 			t := current.term
-			t.promptReady = t.promptStarted && !t.promptDirty
+			t.promptReady = t.promptStarted && !t.promptDirty && t.commandReporting && t.submittedLines == 0
 		}
 	})
+	session.term.screen.SetCommandStart(func() {
+		if current, ok := state.sessionByIDPointer(sessionID); ok && current.term != nil {
+			t := current.term
+			t.commandReporting = true
+			t.promptReady, t.promptStarted = false, false
+			t.promptVersion++
+			if t.submittedLines > 0 {
+				t.submittedLines--
+			}
+		}
+	})
+}
+
+func (t *terminal) resetFolderSync() {
+	t.folderToken = rand.Text()
+	t.screen.SetPromptToken(t.folderToken)
+	t.promptReady, t.promptStarted, t.promptDirty = false, false, false
+	t.folderIntegrationSeen, t.commandReporting = false, false
+	t.submittedLines, t.followPath = 0, ""
+	t.promptVersion++
 }
 
 // Local messages are drawn with the terminal's own colors, so a connection's
@@ -378,13 +400,27 @@ func (t *terminal) sendSecret(p []byte) bool {
 }
 
 func (t *terminal) noteShellInput(p []byte) {
+	atPrompt := t.promptReady
 	t.promptReady, t.promptStarted = false, false
 	t.promptVersion++
 	// A subsequent prompt must not discard text queued after the last Enter.
 	// Cursor movement/deletion is conservative too: only submit/interrupt clears
 	// the dirty line; a mere PS1 redraw never authorizes an automatic command.
-	for _, b := range p {
-		t.promptDirty = b != '\r' && b != '\n' && b != 3
+	for i, b := range p {
+		switch b {
+		case '\r', '\n':
+			if b == '\n' && i > 0 && p[i-1] == '\r' {
+				continue
+			}
+			if t.promptDirty || !atPrompt {
+				t.submittedLines++
+			}
+			t.promptDirty, atPrompt = false, false
+		case 3:
+			t.promptDirty, t.submittedLines = false, 0
+		default:
+			t.promptDirty = true
+		}
 	}
 }
 

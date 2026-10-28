@@ -51,7 +51,7 @@ func TestReverseFolderSyncRejectsNestedShellMarkers(t *testing.T) {
 	state, session, fake, _ := openTestSFTP(t)
 	state.Click(hitSettingsTerminalFollowToggle)
 	shell := fake.shell(t)
-	shell.say(folderSyncMarker(session, "A") + folderSyncMarker(session, "B"))
+	shell.say(folderSyncMarker(session, "C") + folderSyncMarker(session, "A") + folderSyncMarker(session, "B"))
 	state.Wake()
 	session.term.send([]byte("ssh elsewhere\r"))
 	shell.say("\x1b]133;A\a\x1b]7;file://elsewhere/another-host\a\x1b]133;B\a")
@@ -65,11 +65,90 @@ func TestReverseFolderSyncRejectsNestedShellMarkers(t *testing.T) {
 	}
 }
 
+func TestReverseFolderSyncRejectsCompleteSubmittedTypeahead(t *testing.T) {
+	state, session, fake, _ := openTestSFTP(t)
+	state.Click(hitSettingsTerminalFollowToggle)
+	shell := fake.shell(t)
+	shell.say(folderSyncMarker(session, "C") + folderSyncMarker(session, "A") + folderSyncMarker(session, "B"))
+	state.Wake()
+	session.term.send([]byte("sleep 1\rread value\r"))
+	// The shell finishes sleep and briefly prints a prompt before consuming
+	// the complete read command that is already in its input queue.
+	shell.say(folderSyncMarker(session, "C") + folderSyncMarker(session, "A") + folderSyncMarker(session, "B"))
+	state.Wake()
+	state.requestTerminalDirectory(session.files, "/home/test/docs")
+	if session.files.terminalPath != "" {
+		t.Fatal("an intermediate prompt authorized a cd with a complete command still queued")
+	}
+	shell.say(folderSyncMarker(session, "C")) // read is now actually running
+	state.Wake()
+	state.requestTerminalDirectory(session.files, "/home/test/docs")
+	if session.files.terminalPath != "" {
+		t.Fatal("a running read accepted an automatic cd as its input")
+	}
+}
+
+func TestReverseFolderSyncRequiresCommandStartReportingAndCanClearInputDebt(t *testing.T) {
+	state, session, fake, _ := openTestSFTP(t)
+	state.Click(hitSettingsTerminalFollowToggle)
+	shell := fake.shell(t)
+	shell.say(folderSyncMarker(session, "A") + folderSyncMarker(session, "B"))
+	state.Wake()
+	state.requestTerminalDirectory(session.files, "/home/test/docs")
+	if session.files.terminalPath != "" {
+		t.Fatal("a shell without command-start reporting authorized reverse sync")
+	}
+	shell.say(folderSyncMarker(session, "C") + folderSyncMarker(session, "A") + folderSyncMarker(session, "B"))
+	state.Wake()
+	session.term.send([]byte("read value\r"))
+	shell.say(folderSyncMarker(session, "C"))
+	state.Wake()
+	session.term.send([]byte("program input\r"))
+	shell.say(folderSyncMarker(session, "A") + folderSyncMarker(session, "B"))
+	state.Wake()
+	if session.term.promptReady {
+		t.Fatal("unacknowledged program input was treated as an empty shell line")
+	}
+	session.term.send([]byte{3}) // explicit user interrupt at an empty prompt
+	shell.say(folderSyncMarker(session, "A") + folderSyncMarker(session, "B"))
+	state.Wake()
+	state.requestTerminalDirectory(session.files, "/home/test/docs")
+	if session.files.terminalPath != "/home/test/docs" {
+		t.Fatal("an explicit input reset could not restore verified prompt readiness")
+	}
+}
+
+func TestReverseFolderSyncReconnectRequiresFreshShellAuthorization(t *testing.T) {
+	state, session, fake, _ := openTestSFTP(t)
+	state.Click(hitSettingsTerminalFollowToggle)
+	shell := fake.shell(t)
+	shell.say(folderSyncMarker(session, "C") + folderSyncMarker(session, "A") + "\x1b]7;file://box/home/test/docs\a" + folderSyncMarker(session, "B"))
+	waitSFTP(t, state, session, func(v *sftpView) bool { return !v.busy && v.path == "/home/test/docs" })
+	oldToken := session.term.folderToken
+	shell.Close()
+	state.closeSFTP(session)
+	state.finishStartingConnection(session, false)
+	session.phase = sshconn.PhaseConnected
+	state.openShell(session)
+	state.openSFTP(session)
+	waitSFTP(t, state, session, func(v *sftpView) bool { return !v.busy })
+	if session.term.folderToken == oldToken || session.term.promptReady || session.term.promptDirty || session.term.followPath != "" {
+		t.Fatal("reconnect retained old shell authorization or pending state")
+	}
+	if _, ok := session.term.screen.WorkingDirectory(); ok {
+		t.Fatal("reconnect retained the old shell working directory")
+	}
+	state.requestTerminalDirectory(session.files, "/home/test/docs")
+	if session.files.terminalPath != "" {
+		t.Fatal("a shell still starting received an automatic cd")
+	}
+}
+
 func TestReverseFolderSyncCannotExecuteAfterTypingDuringListing(t *testing.T) {
 	state, session, fake, remote := openTestSFTP(t)
 	state.Click(hitSettingsTerminalFollowToggle)
 	shell := fake.shell(t)
-	shell.say(folderSyncMarker(session, "A") + folderSyncMarker(session, "B"))
+	shell.say(folderSyncMarker(session, "C") + folderSyncMarker(session, "A") + folderSyncMarker(session, "B"))
 	state.Wake()
 	remote.mu.Lock()
 	remote.readDelay = 30 * time.Millisecond
@@ -104,7 +183,7 @@ func TestReverseFolderSyncFailedPrefetchCannotLeaveACommandQueued(t *testing.T) 
 	waitSFTP(t, state, session, func(v *sftpView) bool { return !v.busy && len(v.rows) == 2 })
 	state.Click(hitSettingsTerminalFollowToggle)
 	shell := fake.shell(t)
-	shell.say(folderSyncMarker(session, "A") + folderSyncMarker(session, "B"))
+	shell.say(folderSyncMarker(session, "C") + folderSyncMarker(session, "A") + folderSyncMarker(session, "B"))
 	state.Wake()
 	clickSFTPRow(t, state, session.files, "docs") // starts a prefetch
 	state.Click(hitSFTPOpenEntry)                 // joins that same read
@@ -124,7 +203,7 @@ func TestReverseFolderSyncValidatesCachedDirectoriesBeforeExecuting(t *testing.T
 	waitSFTP(t, state, session, func(v *sftpView) bool { return !v.busy && len(v.rows) == 2 })
 	state.Click(hitSettingsTerminalFollowToggle)
 	shell := fake.shell(t)
-	shell.say(folderSyncMarker(session, "A") + folderSyncMarker(session, "B"))
+	shell.say(folderSyncMarker(session, "C") + folderSyncMarker(session, "A") + folderSyncMarker(session, "B"))
 	state.Wake()
 	session.files.remember("/home/test/docs", nil) // an old successful reading
 	state.navigateSFTPDirectory(session.files, "/home/test/docs")
@@ -142,7 +221,7 @@ func TestReverseFolderSyncUsesTheOwningSessionNotTheActiveTab(t *testing.T) {
 	id := original.ID
 	state.Click(hitSettingsTerminalFollowToggle)
 	shell := fake.shell(t)
-	shell.say(folderSyncMarker(original, "A") + folderSyncMarker(original, "B"))
+	shell.say(folderSyncMarker(original, "C") + folderSyncMarker(original, "A") + folderSyncMarker(original, "B"))
 	state.Wake()
 	otherShell := &fakeShell{done: make(chan struct{})}
 	other := Session{ID: id + 1000, host: original.host, phase: sshconn.PhaseConnected, term: newTerminal(80, 24)}
@@ -170,7 +249,7 @@ func TestReverseFolderSyncExcludesStandaloneAndInvalidPaths(t *testing.T) {
 	state, session, fake, _ := openTestSFTP(t)
 	state.Click(hitSettingsTerminalFollowToggle)
 	shell := fake.shell(t)
-	shell.say(folderSyncMarker(session, "A") + folderSyncMarker(session, "B"))
+	shell.say(folderSyncMarker(session, "C") + folderSyncMarker(session, "A") + folderSyncMarker(session, "B"))
 	state.Wake()
 	view := session.files
 	for _, directory := range []string{"relative", "/tmp/bad\npath", "/tmp/bad\x00path", "/tmp/bad\x7fpath"} {
@@ -191,7 +270,7 @@ func TestReverseFolderSyncSendsOneQuotedCommandAfterExplicitNavigation(t *testin
 	state, session, fake, _ := openTestSFTP(t)
 	state.Click(hitSettingsTerminalFollowToggle)
 	shell := fake.shell(t)
-	shell.say(folderSyncMarker(session, "A") + folderSyncMarker(session, "B"))
+	shell.say(folderSyncMarker(session, "C") + folderSyncMarker(session, "A") + folderSyncMarker(session, "B"))
 	state.Wake()
 	view := session.files
 	target := "/home/test/a 'b%#;$(touch nope)"
@@ -203,7 +282,7 @@ func TestReverseFolderSyncSendsOneQuotedCommandAfterExplicitNavigation(t *testin
 		t.Fatalf("reverse input = %q, want literal %q", got, want)
 	}
 	// Reporting the resulting cwd and refreshing it must not echo another cd.
-	shell.say(folderSyncMarker(session, "A") + "\x1b]7;file://box/home/test/a%20%27b%25%23%3B%24%28touch%20nope%29\x07" + folderSyncMarker(session, "B"))
+	shell.say(folderSyncMarker(session, "C") + folderSyncMarker(session, "A") + "\x1b]7;file://box/home/test/a%20%27b%25%23%3B%24%28touch%20nope%29\x07" + folderSyncMarker(session, "B"))
 	state.Wake()
 	state.Click(hitSFTPRefresh)
 	waitSFTP(t, state, session, func(v *sftpView) bool { return !v.busy && v.path == target })
@@ -221,7 +300,7 @@ func TestReverseFolderSyncNeverWritesToUnsafePrompts(t *testing.T) {
 				state.Click(hitSettingsTerminalFollowToggle)
 			}
 			if mode != "unknown" {
-				shell.say(folderSyncMarker(session, "A") + folderSyncMarker(session, "B"))
+				shell.say(folderSyncMarker(session, "C") + folderSyncMarker(session, "A") + folderSyncMarker(session, "B"))
 				state.Wake()
 			}
 			switch mode {

@@ -29,32 +29,33 @@
 **Files:** Create `internal/sshconn/integration.go`, real-shell/SSH tests; modify `internal/sshconn/shell.go`, `internal/term/cwd.go`, `internal/term/parser.go`, parser tests, `internal/workbench/terminal.go`.
 **Interfaces:** `ShellConfig.IntegrateShell bool`; `Terminal.SetPromptReady(func())`; OSC 7 remains unchanged; OSC 133 B invokes readiness callback. `integrationCommand(shell string) string` builds a runtime-only Bash/Zsh wrapper; unsupported input returns empty.
 
-- [ ] Write failing tests: real Bash/Zsh startup with isolated HOME reports `cd` to literal special paths; original prompt hooks still execute; startup files remain byte-identical; temporary files are cleaned; unknown shell returns empty. SSH probe failure/refused exec uses shell request and explicit commands bypass integration.
-- [ ] Run `go test ./internal/sshconn ./internal/term -run 'Integration|PromptReady' -count=1`; expect missing behavior/interface failures.
-- [ ] Implement bounded optional shell probe before PTY creation; private temporary startup shims, existing profile/hook chaining, URI-byte encoding, cleanup/fallback; enable integration only for normal SSH terminals. Add exact OSC 133 B parsing.
-- [ ] Run the focused tests plus existing SSH/terminal suites; expect PASS. Commit `feat(ssh): add session-local shell folder reporting`.
+- [x] Write failing tests: real Bash/Zsh startup with isolated HOME reports `cd` to literal special paths; original prompt hooks still execute; startup files remain byte-identical; temporary files are cleaned; unknown shell returns empty. SSH probe failure/refused exec uses shell request and explicit commands bypass integration.
+- [x] Run `go test ./internal/sshconn ./internal/term -run 'Integration|PromptReady' -count=1`; expect missing behavior/interface failures.
+- [x] Implement bounded optional shell probe before PTY creation; private temporary startup shims, existing profile/hook chaining, URI-byte encoding, cleanup/fallback; enable integration only for normal SSH terminals. Add exact OSC 133 B parsing.
+- [x] Run the focused tests plus existing SSH/terminal suites; expect PASS. Commit `feat(ssh): add session-local shell folder reporting`.
 
 ### Task 2: Reliable forward following
 
 **Files:** Create `internal/workbench/sftp_sync.go` and tests; modify `sftp_extra.go`, `terminal.go`, `connection.go`, `sftp.go`.
 **Interfaces:** `terminal.followPath string`; `followTerminalDirectory(session *Session)` consumes the latest pending path only when the attached remote view is safe. Existing `terminalDirectory(sessionID uint32, cwd term.Cwd)` queues it. No reverse origin on forward navigation.
 
-- [ ] Write failing tests for reports before panel opening, reports during busy listing/path editing, latest-only coalescing, disabled follow and independent sessions; assert the final displayed path and rows.
-- [ ] Run `go test ./internal/workbench -run 'FolderFollow|FolderTheShell' -count=1`; expect panel remains in old directory in new deferred cases.
-- [ ] Implement queue/consume logic on Wake and after initial panel creation; suppress local/container/standalone effects; discard same-path targets without repeated navigation.
-- [ ] Run the focused tests; expect PASS. Commit `fix(files): retain terminal folder changes until the panel is ready`.
+- [x] Write failing tests for reports before panel opening, reports during busy listing/path editing, latest-only coalescing, disabled follow and independent sessions; assert the final displayed path and rows.
+- [x] Run `go test ./internal/workbench -run 'FolderFollow|FolderTheShell' -count=1`; expect panel remains in old directory in new deferred cases.
+- [x] Implement queue/consume logic on Wake and after initial panel creation; suppress local/container/standalone effects; discard same-path targets without repeated navigation.
+- [x] Run the focused tests; expect PASS. Commit `fix(files): retain terminal folder changes until the panel is ready`.
 
 ### Task 3: Optional safe reverse sync and delivery verification
 
 **Files:** Extend `sftp_sync.go` and tests; modify explicit navigation call sites in `sftp.go`, `sftp_extra.go`, `terminal_menu.go`; `terminal.go`; settings/model/persistence/search; `internal/i18n/{terminal_tools,english,chinese}.go`; docs.
 **Interfaces:** `State.sftpTerminalFollow bool` persisted as `savedState.SFTPTerminalFollow bool` / `sftp_terminal_follow`; `navigateSFTPDirectory(view *sftpView, remotePath string)` tags explicit navigation; listing completion consumes its reverse target. `terminal.promptReady bool` becomes false on accepted input; OSC 133 B re-arms it. `syncTerminalDirectory(view *sftpView)` sends one `cd -- <single-quoted path>\r` only after a successful explicit navigation and all guards pass.
 
-- [ ] Write failing tests for default-off/restoration and visible settings control; explicit successful directory navigation sends one literal quoted command to its owning ready shell, while local/standalone/container/busy/dirty/alt-screen/AI-exec/error/forward-refresh cases send none.
-- [ ] Run `go test ./internal/workbench -run 'FolderSync|ReverseFolder' -count=1`; expect missing setting/navigation behavior.
-- [ ] Implement independent localized setting/search and persistence, explicit-navigation tagging, successful-listing handling, no-loop/safety guards, visible skip feedback; keep unsupported prompts fail-closed.
-- [ ] Run focused tests, `go test ./... -count=1`, dev-tag tests/vet, affected-package race, tracked-Go formatting, native/headless builds. Record exact commands and results, compatibility limitations and remaining manual acceptance.
-- [ ] Commit `feat(files): add opt-in safe terminal directory synchronization`.
-- [ ] Whole-branch independent review, fix Important/Critical findings with RED -> GREEN tests, then re-run affected verification. Verify remote target/scope, push the feature branch to the user's fork, open upstream PR against `main` with `Closes #109`, attach PR and inspect initial CI status. Do not merge.
+- [x] Write failing tests for default-off/restoration and visible settings control; explicit successful directory navigation sends one literal quoted command to its owning ready shell, while local/standalone/container/busy/dirty/alt-screen/AI-exec/error/forward-refresh cases send none.
+- [x] Run `go test ./internal/workbench -run 'FolderSync|ReverseFolder' -count=1`; expect missing setting/navigation behavior.
+- [x] Implement independent localized setting/search and persistence, explicit-navigation tagging, successful-listing handling, no-loop/safety guards, visible skip feedback; keep unsupported prompts fail-closed.
+- [x] Run focused tests, `go test ./... -count=1`, dev-tag tests/vet, affected-package race, tracked-Go formatting, native/headless builds. Record exact commands and results, compatibility limitations and remaining manual acceptance.
+- [x] Commit `feat(files): add opt-in safe terminal directory synchronization`.
+- [x] Whole-branch independent review; fix Important findings with RED -> GREEN tests and repeat the full verification gate. See `reviews/2026-10-28-code-review.md` and `verification.md`.
+- [ ] Remote delivery: push the feature branch to the user's fork, open upstream PR against `main` with `Closes #109`, attach PR and inspect initial CI status. Do not merge. The PR and preserved local delivery ledger record this external step.
 
 ## Self-Review
 

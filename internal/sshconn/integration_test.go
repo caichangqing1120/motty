@@ -1,12 +1,57 @@
 package sshconn
 
 import (
+	"context"
+	"errors"
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 )
+
+func TestIntegrationProbeCancellationWhileExecAcknowledgmentIsWithheld(t *testing.T) {
+	started, release := make(chan struct{}), make(chan struct{})
+	server := startServer(t, func(server *testServer) {
+		server.password, server.shell = "secret", echoShell
+		server.beforeExecReply = func(command string) {
+			if command == shellIntegrationProbe {
+				close(started)
+				<-release
+			}
+		}
+		server.command = func(_ string, channel ssh.Channel) {
+			defer channel.Close()
+			channel.SendRequest("exit-status", false, ssh.Marshal(struct{ Status uint32 }{0}))
+		}
+	})
+	defer close(release)
+	h := connect(t, server)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	result := make(chan error, 1)
+	go func() {
+		_, err := h.conn.RunCommand(ctx, shellIntegrationProbe, 4096)
+		result <- err
+	}()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("probe never reached exec request")
+	}
+	cancel()
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("canceled establishment returned %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("cancellation is waiting for the withheld exec acknowledgment")
+	}
+	w := openShell(t, h, 80, 24)
+	w.until("normal shell fallback", func(output string) bool { return strings.Contains(output, "welcome") })
+}
 
 func TestIntegrationSSHStartupAndFallback(t *testing.T) {
 	for _, mode := range []string{"integrated", "probe-refused", "unsupported", "exec-refused", "custom-command"} {

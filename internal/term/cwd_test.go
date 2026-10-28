@@ -5,15 +5,16 @@ import "testing"
 func TestPromptReadyRequiresTheSessionToken(t *testing.T) {
 	terminal := New(80, 24, 0)
 	terminal.SetPromptToken("session-token")
-	started, ready := 0, 0
+	started, ready, commands := 0, 0, 0
 	terminal.SetPromptStart(func() { started++ })
 	terminal.SetPromptReady(func() { ready++ })
-	terminal.Write([]byte("\x1b]133;A\a\x1b]133;B\a\x1b]133;A;motty=another-session\a\x1b]133;B;motty=another-session\a"))
-	if started != 0 || ready != 0 {
+	terminal.SetCommandStart(func() { commands++ })
+	terminal.Write([]byte("\x1b]133;A\a\x1b]133;B\a\x1b]133;A;motty=another-session\a\x1b]133;B;motty=another-session\a\x1b]133;C;motty=another-session\a"))
+	if started != 0 || ready != 0 || commands != 0 {
 		t.Fatal("a nested or unrelated shell authorized this session")
 	}
-	terminal.Write([]byte("\x1b]133;A;motty=session-token\a\x1b]133;B;motty=session-token\a"))
-	if started != 1 || ready != 1 {
+	terminal.Write([]byte("\x1b]133;C;motty=session-token\a\x1b]133;A;motty=session-token\a\x1b]133;B;motty=session-token\a"))
+	if started != 1 || ready != 1 || commands != 1 {
 		t.Fatal("the owning shell was not recognized")
 	}
 }

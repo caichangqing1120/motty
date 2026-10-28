@@ -35,7 +35,16 @@ func (t *Terminal) SetPromptStart(fn func()) { t.promptStartFn = fn }
 
 // SetPromptToken confines readiness to this shell's integration, not a nested
 // SSH login or a program that also implements the standard OSC 133 markers.
-func (t *Terminal) SetPromptToken(token string) { t.promptToken = token }
+func (t *Terminal) SetPromptToken(token string) {
+	if token != t.promptToken {
+		t.cwd = Cwd{}
+	}
+	t.promptToken = token
+}
+
+// SetCommandStart receives the owning shell's OSC 133 C before execution,
+// including commands that readline takes from previously submitted typeahead.
+func (t *Terminal) SetCommandStart(fn func()) { t.commandStartFn = fn }
 
 // WorkingDirectory is the last directory the shell reported, or false.
 func (t *Terminal) WorkingDirectory() (Cwd, bool) { return t.cwd, t.cwd.Path != "" }
