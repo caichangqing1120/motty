@@ -87,6 +87,10 @@ func (signal Signal) name() string {
 	return "TERM"
 }
 
+// collectorMarker identifies the listing's own command line in the process
+// table, wherever a shell wraps it.
+const collectorMarker = "ps -e -o pid= -o user= -o pcpu="
+
 func processCommand(key SortKey) string {
 	column := "3"
 	if key == SortMemory {
@@ -94,14 +98,14 @@ func processCommand(key SortKey) string {
 	}
 	// Older procps treats commas after pid= as part of its header, leaving only
 	// the PID column. Separate -o options keep every column and suppress headers.
-	return "LC_ALL=C ps -e -o pid= -o user= -o pcpu= -o pmem= -o etime= -o args= 2>&1 | LC_ALL=C sort -k" + column + "," + column + "nr | head -n " +
+	return "LC_ALL=C " + collectorMarker + " -o pmem= -o etime= -o args= 2>&1 | LC_ALL=C sort -k" + column + "," + column + "nr | head -n " +
 		strconv.Itoa(maxProcesses+8) + " | cut -c1-" + strconv.Itoa(maxCommand+60)
 }
 
 // ownPipeline reports whether a command line is the listing's own: the shell
 // that runs it and the stages of its pipe would otherwise head the list.
 func ownPipeline(command string) bool {
-	return strings.Contains(command, "pid=,user=,pcpu=") || strings.Contains(command, "pid= -o user= -o pcpu=") || strings.HasPrefix(command, "sort -k") ||
+	return strings.Contains(command, collectorMarker) || strings.HasPrefix(command, "sort -k") ||
 		strings.HasPrefix(command, "head -n ") || strings.HasPrefix(command, "cut -c1-")
 }
 

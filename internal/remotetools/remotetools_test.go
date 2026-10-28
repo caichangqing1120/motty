@@ -54,7 +54,7 @@ func TestParsingTheProcessListSortsAndSkipsItsOwnPipeline(t *testing.T) {
 		"    1 root      0.1  0.2    10-02:03:04 /sbin/init splash\n" +
 		" 2211 www-data  42.5 1.3       01:02:03 nginx: worker process   (with   spaces)\n" +
 		" 3000 alice      7.0 30.9          05:01 /usr/bin/python3 /srv/app.py --flag\n" +
-		" 9001 alice      0.0  0.0          00:00 sh -c LC_ALL=C ps -eo pid=,user=,pcpu=,pmem=,etime=,args= 2>&1 | sort\n" +
+		" 9001 alice      0.0  0.0          00:00 sh -c " + processCommand(SortCPU) + "\n" +
 		" 9003 alice      0.0  0.0          00:00 sort -k3,3nr\n" +
 		" 9004 alice      0.0  0.0          00:00 head -n 68\n"
 	byCPU, err := ParseProcesses([]byte(output), SortCPU)
@@ -148,7 +148,7 @@ esac
 
 func TestProcessListingSkipsItsSeparateOutputOptionPipeline(t *testing.T) {
 	output := "2211 www-data 42.5 1.3 01:02:03 nginx: worker process\n" +
-		"9001 alice 99.0 0.0 00:00 sh -c LC_ALL=C ps -e -o pid= -o user= -o pcpu= -o pmem= -o etime= -o args= 2>&1 | LC_ALL=C sort -k3,3nr | head -n 68 | cut -c1-300\n"
+		"9001 alice 99.0 0.0 00:00 sh -c " + processCommand(SortCPU) + "\n"
 	list, err := ParseProcesses([]byte(output), SortCPU)
 	if err != nil || len(list) != 1 || list[0].PID != 2211 {
 		t.Fatalf("listing retained its own pipeline: rows=%+v err=%v", list, err)
