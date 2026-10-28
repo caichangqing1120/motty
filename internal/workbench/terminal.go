@@ -66,6 +66,7 @@ type terminal struct {
 	ended           bool             // the shell finished, or never started
 	shellOpened     time.Duration    // when the shell was asked for, to give a silent one up
 	opening         chan shellResult // a shell being opened in the background, until pump collects it
+	followPath      string           // latest shell directory awaiting a safe attached file panel
 	blink           cursorBlink
 	wheelX          float32 // horizontal wheel travel not yet worth a whole cell
 	wheelY          float32 // vertical wheel travel not yet worth a whole cell

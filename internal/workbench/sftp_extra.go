@@ -13,7 +13,6 @@ import (
 	"github.com/vivaui/viva/ui"
 	"motty/internal/sftpclient"
 	"motty/internal/sshconn"
-	"motty/internal/term"
 	layoutcore "motty/internal/workspace"
 )
 
@@ -313,22 +312,6 @@ func firstLines(s string, n int) string {
 }
 
 // ---- following the terminal's folder ----
-
-// terminalDirectory is called when a session's shell reports its folder.
-func (state *State) terminalDirectory(sessionID uint32, cwd term.Cwd) {
-	if state.sftpFollowOff {
-		return
-	}
-	session, ok := state.sessionByIDPointer(sessionID)
-	if !ok || session.files == nil || !session.hasServer() {
-		return
-	}
-	view := session.files
-	if view.busy || view.dialog != sftpDialogNone || view.editPath != "" || path.Clean(view.path) == path.Clean(cwd.Path) {
-		return
-	}
-	state.openSFTPDirectory(view, cwd.Path)
-}
 
 // followSetupCommand is what a shell is given to report its folder at every
 // prompt. It is for bash and zsh, which between them are most shells.

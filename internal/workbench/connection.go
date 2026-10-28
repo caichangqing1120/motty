@@ -571,6 +571,7 @@ func (state *State) Wake() {
 		state.pumpRemoteStats(session)
 		state.pumpDesktop(session)
 		state.pump(session)
+		state.followTerminalDirectory(session)
 		if session.term != nil {
 			session.term.find.refreshIfChanged(session.term.screen, state.messages, findNow)
 		}
