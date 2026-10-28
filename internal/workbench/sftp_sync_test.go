@@ -3,6 +3,7 @@ package workbench
 import (
 	"testing"
 
+	"github.com/vivaui/viva/text"
 	"motty/internal/term"
 )
 
@@ -18,8 +19,17 @@ func TestFolderFollowRemembersReportsBeforePanelOpening(t *testing.T) {
 	})
 }
 
+func TestFolderFollowReopeningUsesTheLastReportedDirectory(t *testing.T) {
+	state, session, fake, _ := openTestSFTP(t)
+	fake.shell(t).say("\x1b]7;file://box/home/test/docs\x07")
+	waitSFTP(t, state, session, func(v *sftpView) bool { return !v.busy && v.path == "/home/test/docs" })
+	state.closeSFTP(session)
+	state.openSFTP(session)
+	waitSFTP(t, state, session, func(v *sftpView) bool { return !v.busy && v.path == "/home/test/docs" })
+}
+
 func TestFolderFollowCoalescesBlockedReports(t *testing.T) {
-	for _, blocker := range []string{"busy", "path-editing", "dialog", "file-editing", "local-pane"} {
+	for _, blocker := range []string{"busy", "path-editing", "path-input-draft", "dialog", "file-editing", "local-pane"} {
 		t.Run(blocker, func(t *testing.T) {
 			state, session, fake, remote := openTestSFTP(t)
 			view := session.files
@@ -28,6 +38,9 @@ func TestFolderFollowCoalescesBlockedReports(t *testing.T) {
 				view.busy = true
 			case "path-editing":
 				view.pathEditing = true
+			case "path-input-draft":
+				state.sftpPathInput = true
+				*view.pathInput() = *text.NewEditor("/unfinished")
 			case "dialog":
 				view.dialog = sftpDialogCreateDirectory
 			case "file-editing":
@@ -40,8 +53,12 @@ func TestFolderFollowCoalescesBlockedReports(t *testing.T) {
 			if view.path != "/home/test" {
 				t.Fatalf("navigation interrupted %s: %q", blocker, view.path)
 			}
+			if blocker != "busy" && view.busy {
+				t.Fatalf("a listing started while %s was protected", blocker)
+			}
 			view.busy, view.pathEditing, view.local = false, false, false
 			view.dialog, view.editPath = sftpDialogNone, ""
+			view.resetPathInput()
 			waitSFTP(t, state, session, func(view *sftpView) bool {
 				return !view.busy && view.path == "/home/test/docs" && len(view.rows) == 1
 			})

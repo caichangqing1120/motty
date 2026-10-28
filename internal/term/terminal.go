@@ -182,6 +182,8 @@ type Terminal struct {
 	notifyFn      func(Notification)
 	cwdFn         func(Cwd)
 	promptReadyFn func()
+	promptStartFn func()
+	promptToken   string
 	syncFn        func(bool)
 	cwd           Cwd
 	kittyNotes    []kittyPending // OSC 99 notifications still waiting for chunks

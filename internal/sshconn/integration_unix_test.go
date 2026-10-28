@@ -3,6 +3,7 @@
 package sshconn
 
 import (
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,9 +11,76 @@ import (
 	"testing"
 	"time"
 
+	"github.com/creack/pty"
+	"golang.org/x/crypto/ssh"
 	"motty/internal/localshell"
 	"motty/internal/term"
 )
+
+func TestIntegrationRealSSHPTYTracksCD(t *testing.T) {
+	program, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash unavailable")
+	}
+	home := t.TempDir()
+	target := filepath.Join(home, "ssh dir%#")
+	if err := os.Mkdir(target, 0700); err != nil {
+		t.Fatal(err)
+	}
+	server := startServer(t, func(server *testServer) {
+		server.password, server.shell = "secret", echoShell
+		server.command = func(command string, channel ssh.Channel) {
+			defer channel.Close()
+			if command == shellIntegrationProbe {
+				io.WriteString(channel, "\x1emotty-shell:"+program+"\x1f")
+				channel.SendRequest("exit-status", false, ssh.Marshal(struct{ Status uint32 }{0}))
+				return
+			}
+			cmd := exec.Command("/bin/sh", "-c", command)
+			cmd.Dir = home
+			cmd.Env = append(os.Environ(), "HOME="+home, "SHELL="+program)
+			master, err := pty.Start(cmd)
+			if err != nil {
+				t.Errorf("SSH PTY: %v", err)
+				return
+			}
+			defer master.Close()
+			inputDone := make(chan struct{})
+			go func() {
+				io.Copy(master, channel)
+				master.Close()
+				close(inputDone)
+			}()
+			io.Copy(channel, master)
+			status := uint32(0)
+			if err := cmd.Wait(); err != nil {
+				status = 1
+			}
+			channel.SendRequest("exit-status", false, ssh.Marshal(struct{ Status uint32 }{status}))
+			channel.Close()
+			<-inputDone
+		}
+	})
+	h := connect(t, server)
+	w := openShellWith(t, h, ShellConfig{Cols: 80, Rows: 24, IntegrateShell: true, IntegrationToken: "pty-test-token"})
+	screen := term.New(80, 24, 0)
+	screen.SetPromptToken("pty-test-token")
+	ready, consumed := 0, 0
+	screen.SetPromptReady(func() { ready++ })
+	parse := func(output string) {
+		screen.Write([]byte(output[consumed:]))
+		consumed = len(output)
+	}
+	w.until("integrated SSH prompt", func(output string) bool { parse(output); return ready > 0 })
+	w.shell.Write([]byte("cd -- '" + target + "'\r"))
+	w.until("SSH cd report", func(output string) bool {
+		parse(output)
+		cwd, ok := screen.WorkingDirectory()
+		return ready > 1 && ok && cwd.Path == target
+	})
+	w.shell.Write([]byte("exit\r"))
+	w.waitDone()
+}
 
 func TestIntegrationReportsRealShellDirectoriesWithoutChangingProfiles(t *testing.T) {
 	for _, name := range []string{"bash", "zsh"} {
@@ -39,7 +107,7 @@ func TestIntegrationReportsRealShellDirectoriesWithoutChangingProfiles(t *testin
 				t.Fatal(err)
 			}
 			shell, err := localshell.Start(localshell.Config{
-				Shell: "/bin/sh", Args: []string{"-c", integrationCommand(program)}, Dir: home,
+				Shell: "/bin/sh", Args: []string{"-c", integrationCommand(program, "pty-test-token")}, Dir: home,
 				Env:  []string{"HOME=" + home, "ZDOTDIR=" + home, "SHELL=" + program, "TMPDIR=" + runtimeDir},
 				Cols: 120, Rows: 24,
 			})
@@ -48,6 +116,7 @@ func TestIntegrationReportsRealShellDirectoriesWithoutChangingProfiles(t *testin
 			}
 			t.Cleanup(shell.Close)
 			screen := term.New(120, 24, 0)
+			screen.SetPromptToken("pty-test-token")
 			ready, output := 0, ""
 			screen.SetPromptReady(func() { ready++ })
 			await := func(want string, predicate func() bool) {

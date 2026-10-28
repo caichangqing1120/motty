@@ -32,17 +32,18 @@ var (
 )
 
 var (
-	hitSettingsParallel1       = tree.ID(sftpHits, "settings-parallel1")
-	hitSettingsParallel2       = tree.ID(sftpHits, "settings-parallel2")
-	hitSettingsParallel4       = tree.ID(sftpHits, "settings-parallel4")
-	hitSettingsKeepTimesToggle = tree.ID(sftpHits, "settings-keep-times")
-	hitSettingsFollowToggle    = tree.ID(sftpHits, "settings-follow")
-	hitSettingsPathBreadcrumbs = tree.ID(sftpHits, "settings-path-breadcrumbs")
-	hitSettingsPathInput       = tree.ID(sftpHits, "settings-path-input")
-	hitSettingsFollowSetup     = tree.ID(sftpHits, "settings-follow-setup")
-	hitSettingsPanelAutoOpen   = tree.ID(sftpHits, "settings-panel-auto-open")
-	hitSettingsPanelLeft       = tree.ID(sftpHits, "settings-panel-left")
-	hitSettingsPanelRight      = tree.ID(sftpHits, "settings-panel-right")
+	hitSettingsParallel1            = tree.ID(sftpHits, "settings-parallel1")
+	hitSettingsParallel2            = tree.ID(sftpHits, "settings-parallel2")
+	hitSettingsParallel4            = tree.ID(sftpHits, "settings-parallel4")
+	hitSettingsKeepTimesToggle      = tree.ID(sftpHits, "settings-keep-times")
+	hitSettingsFollowToggle         = tree.ID(sftpHits, "settings-follow")
+	hitSettingsTerminalFollowToggle = tree.ID(sftpHits, "settings-terminal-follow")
+	hitSettingsPathBreadcrumbs      = tree.ID(sftpHits, "settings-path-breadcrumbs")
+	hitSettingsPathInput            = tree.ID(sftpHits, "settings-path-input")
+	hitSettingsFollowSetup          = tree.ID(sftpHits, "settings-follow-setup")
+	hitSettingsPanelAutoOpen        = tree.ID(sftpHits, "settings-panel-auto-open")
+	hitSettingsPanelLeft            = tree.ID(sftpHits, "settings-panel-left")
+	hitSettingsPanelRight           = tree.ID(sftpHits, "settings-panel-right")
 )
 
 var (
@@ -126,7 +127,7 @@ func (state *State) clickSFTPExtra(session *Session, view *sftpView, id ui.ID) b
 		if index := item(id); index < len(marks) {
 			view.bookmarksOpen = false
 			if !view.busy {
-				state.openSFTPDirectory(view, marks[index])
+				state.navigateSFTPDirectory(view, marks[index])
 			}
 		}
 	case id.Scope() == hitSFTPBookmarkRemoveList:
@@ -369,6 +370,7 @@ func (state *State) paintFilesSettings(page *settingsPage) {
 			page.row(m.FilesParallel, "", parallel[:], selectedParallel)
 			page.toggleRow(m.FilesKeepTimes, m.FilesKeepTimesDescription, !state.sftpKeepTimesOff, hitSettingsKeepTimesToggle)
 			page.toggleRow(m.FilesFollow, m.FilesFollowDescription, !state.sftpFollowOff, hitSettingsFollowToggle)
+			page.toggleRow(m.FilesTerminalFollow, m.FilesTerminalFollowDescription, state.sftpTerminalFollow, hitSettingsTerminalFollowToggle)
 			page.actionRow(m.FilesFollowSetup, m.FilesFollowSetupDescription, false,
 				components.ButtonAction{ID: hitSettingsFollowSetup, Label: m.FilesFollowSetupCopy, Variant: components.ButtonOutline})
 		})
@@ -409,6 +411,9 @@ func (state *State) clickFilesSettings(id ui.ID) bool {
 		state.save()
 	case hitSettingsFollowToggle:
 		state.sftpFollowOff = !state.sftpFollowOff
+		state.save()
+	case hitSettingsTerminalFollowToggle:
+		state.sftpTerminalFollow = !state.sftpTerminalFollow
 		state.save()
 	case hitSettingsFollowSetup:
 		if err := state.options.SetClipboardText(followSetupCommand); err != nil {
@@ -564,6 +569,7 @@ func (state *State) restoreSFTPSettings(saved savedState) {
 	}
 	state.sftpKeepTimesOff = saved.SFTPKeepTimes == "off"
 	state.sftpFollowOff = saved.SFTPFollow == "off"
+	state.sftpTerminalFollow = saved.SFTPTerminalFollow
 	state.sftpPathInput = saved.SFTPPathInput
 	state.sftpPanelAutoOpen = saved.SFTPPanelAutoOpen
 	state.sftpPanelSide = layoutcore.ContextLeft

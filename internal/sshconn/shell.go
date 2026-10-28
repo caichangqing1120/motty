@@ -33,6 +33,8 @@ type ShellConfig struct {
 	// IntegrateShell enables session-local Bash/Zsh directory reporting. An
 	// unsupported shell keeps the ordinary shell request; Command takes priority.
 	IntegrateShell bool
+	// IntegrationToken binds prompt readiness to this shell, not nested logins.
+	IntegrationToken string
 	// Notify is called after output arrives and when the shell ends. It may be
 	// called from any goroutine and must not block; the owner then calls Drain
 	// on its own thread.
@@ -76,7 +78,7 @@ func (conn *Conn) OpenShell(config ShellConfig) (*Shell, error) {
 	}
 	command := config.Command
 	if command == "" && config.IntegrateShell {
-		command = conn.shellIntegrationCommand()
+		command = conn.shellIntegrationCommand(config.IntegrationToken)
 	}
 	session, err := client.NewSession()
 	if err != nil {

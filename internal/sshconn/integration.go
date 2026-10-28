@@ -9,7 +9,7 @@ import (
 
 const shellIntegrationProbe = `printf '\036motty-shell:%s\037' "$SHELL"`
 
-func (conn *Conn) shellIntegrationCommand() string {
+func (conn *Conn) shellIntegrationCommand(token string) string {
 	ctx, cancel := context.WithTimeout(conn.ctx, 2*time.Second)
 	defer cancel()
 	data, err := conn.RunCommand(ctx, shellIntegrationProbe, 4096)
@@ -24,12 +24,22 @@ func (conn *Conn) shellIntegrationCommand() string {
 	if !ok {
 		return ""
 	}
-	return integrationCommand(shell)
+	return integrationCommand(shell, token)
 }
 
 // Only recognized Unix shells opt into the startup shim. The probe and shim
 // never write commands to an already running interactive program.
-func integrationCommand(shell string) string {
+func integrationCommand(shell string, tokens ...string) string {
+	suffix := ""
+	if len(tokens) > 0 && tokens[0] != "" {
+		token := tokens[0]
+		if len(token) > 128 || strings.IndexFunc(token, func(r rune) bool {
+			return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_')
+		}) >= 0 {
+			return ""
+		}
+		suffix = ";motty=" + token
+	}
 	if !strings.HasPrefix(shell, "/") || strings.IndexFunc(shell, func(r rune) bool { return r < 0x20 || r == 0x7f }) >= 0 {
 		return ""
 	}
@@ -81,7 +91,7 @@ MOTTY_USER_ZDOTDIR=${ZDOTDIR-$HOME} MOTTY_USER_ZDOTDIR_SET=${ZDOTDIR+x} ZDOTDIR=
 `
 	}
 	script += "_motty_status=$?\nexit \"$_motty_status\"\n"
-	return "sh -c " + quote(script) + " sh " + quote(shell)
+	return "sh -c " + quote(strings.ReplaceAll(script, "__MOTTY_SUFFIX__", suffix)) + " sh " + quote(shell)
 }
 
 // Encode bytes, not characters: file URI reserved characters and non-ASCII
@@ -95,7 +105,7 @@ const directoryReportFunction = `__motty_report() {
             *) printf -v _motty_hex '%%%02X' "'$_motty_char"; _motty_path=$_motty_path$_motty_hex ;;
         esac
     done
-    printf '\033]7;file://%s%s\007' "${HOSTNAME:-$HOST}" "$_motty_path"
+    printf '\033]133;A__MOTTY_SUFFIX__\007\033]7;file://%s%s\007' "${HOSTNAME:-${HOST:-}}" "$_motty_path"
     case $PS1 in
         *"$_motty_prompt_marker") ;;
         *) PS1=$PS1$_motty_prompt_marker ;;
@@ -110,7 +120,7 @@ for _motty_profile in "$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.profile"
     if [[ -r $_motty_profile ]]; then source "$_motty_profile"; break; fi
 done
 ` + directoryReportFunction + `
-_motty_prompt_marker='\[\e]133;B\a\]'
+_motty_prompt_marker='\[\e]133;B__MOTTY_SUFFIX__\a\]'
 case $(declare -p PROMPT_COMMAND 2>/dev/null) in
     'declare -a '*) PROMPT_COMMAND+=(__motty_report) ;;
     *) PROMPT_COMMAND=${PROMPT_COMMAND:+$PROMPT_COMMAND$'\n'}__motty_report ;;
@@ -119,6 +129,6 @@ rm -rf -- "$_motty_runtime"
 unset _motty_runtime _motty_profile`
 
 const zshIntegration = directoryReportFunction + `
-_motty_prompt_marker=$'%{\e]133;B\a%}'
+_motty_prompt_marker=$'%{\e]133;B__MOTTY_SUFFIX__\a%}'
 typeset -ga precmd_functions
 precmd_functions+=(__motty_report)`
