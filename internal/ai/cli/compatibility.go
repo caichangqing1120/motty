@@ -56,6 +56,28 @@ func compatibilityFailure(program string, c command, label, reason, detail strin
 
 var cliVersionPattern = regexp.MustCompile(`\b[0-9]+\.[0-9]+\.[0-9]+\b`)
 
+// helpFlags collects the flags a --help page lists. Only the leading column is
+// read: a name a description happens to mention is prose, not a capability.
+func helpFlags(raw []byte) map[string]bool {
+	flags := make(map[string]bool)
+	for _, line := range strings.Split(string(raw), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "-") {
+			continue
+		}
+		if cut := strings.Index(line, "  "); cut >= 0 {
+			line = line[:cut]
+		}
+		for _, field := range strings.Fields(line) {
+			name, _, _ := strings.Cut(strings.Trim(field, ","), "=")
+			if strings.HasPrefix(name, "-") {
+				flags[name] = true
+			}
+		}
+	}
+	return flags
+}
+
 func probe(ctx context.Context, kind string, c *command) error {
 	a, ok := adapters[kind]
 	if !ok {
@@ -100,11 +122,7 @@ func probeAdapter(ctx context.Context, a adapter, c *command) error {
 		}
 		return compatibilityFailure(a.program, *c, strings.Join(helpArgs, " "), "unavailable", "")
 	}
-	flags := make(map[string]bool)
-	for _, field := range strings.Fields(string(raw)) {
-		name, _, _ := strings.Cut(strings.Trim(field, ","), "=")
-		flags[name] = true
-	}
+	flags := helpFlags(raw)
 	for _, flag := range a.required {
 		if !flags[flag] {
 			return compatibilityFailure(a.program, *c, strings.Join(helpArgs, " "), "missing_capability", flag)

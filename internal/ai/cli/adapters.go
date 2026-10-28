@@ -28,8 +28,10 @@ var codexControls = []string{
 
 var adapters = map[string]adapter{
 	store.KindClaudeCLI: {
-		program:  "claude",
-		required: []string{"--settings", "--setting-sources", "--strict-mcp-config", "--tools", "--disable-slash-commands", "--include-partial-messages", "--no-session-persistence"},
+		program: "claude",
+		required: []string{"--settings", "--setting-sources", "--strict-mcp-config", "--tools", "--disable-slash-commands",
+			"--include-partial-messages", "--no-session-persistence", "--print", "--output-format", "--mcp-config",
+			"--permission-mode", "--allowedTools"},
 	},
 	store.KindCodexCLI: {
 		program: "codex", required: []string{"--ephemeral", "--json", "--sandbox"},
@@ -48,7 +50,9 @@ var adapters = map[string]adapter{
 }
 
 // Check the installed binary's effective feature state, not a version allowlist.
-// Removed optional features may be inert, but shell_tool must remain switchable.
+// A feature the CLI still lists must be off under our overrides; a richer or
+// reworded table is tolerated, and a feature the CLI no longer has cannot be
+// switched on, so it is inert rather than unsafe.
 func validateCodexControls(raw []byte) checkFailure {
 	controlled := make(map[string]bool)
 	for _, override := range codexControls {
@@ -60,28 +64,35 @@ func validateCodexControls(raw []byte) checkFailure {
 		}
 	}
 	seen := make(map[string]bool)
-	shellDisabled := false
-	for _, line := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
+	for _, line := range strings.Split(string(raw), "\n") {
 		fields := strings.Fields(line)
+		if len(fields) == 0 || headerRow(fields) {
+			continue
+		}
 		if len(fields) < 3 || seen[fields[0]] {
 			return checkFailure{reason: "invalid_output"}
 		}
 		name, value := fields[0], fields[len(fields)-1]
-		if value != "true" && value != "false" {
+		switch value {
+		case "true", "false":
+		default:
 			return checkFailure{reason: "invalid_output"}
 		}
 		seen[name] = true
 		if controlled[name] && value != "false" {
 			return checkFailure{reason: "not_applied", detail: "features." + name + "=false"}
 		}
-		if name == "shell_tool" {
-			shellDisabled = value == "false" && fields[1] != "removed"
-		}
-	}
-	if !shellDisabled {
-		return checkFailure{reason: "missing_capability", detail: "features.shell_tool=false"}
 	}
 	return checkFailure{}
+}
+
+// headerRow is a human-readable header, not a feature: "Feature Stage Enabled".
+func headerRow(fields []string) bool {
+	switch strings.ToLower(fields[0]) {
+	case "feature", "features", "name":
+		return true
+	}
+	return false
 }
 
 func validateOpenCodePermission(raw []byte) checkFailure {

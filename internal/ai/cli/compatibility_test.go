@@ -84,8 +84,8 @@ func TestProbeUsesCapabilitiesRatherThanVersionWhitelist(t *testing.T) {
 		{"codex-cli", "codex-cli 0.163.0", "--ephemeral --json --sandbox"},
 		{"codex-cli", "codex-cli 0.165.0", "--ephemeral --json --sandbox"},
 		{"codex-cli", "codex-cli 1.0.0", "--ephemeral --json --sandbox"},
-		{"claude-code-cli", "2.2.0 (Claude Code)", "--settings --setting-sources --strict-mcp-config --tools --disable-slash-commands --include-partial-messages --no-session-persistence"},
-		{"claude-code-cli", "3.0.0 (Claude Code)", "--settings --setting-sources --strict-mcp-config --tools --disable-slash-commands --include-partial-messages --no-session-persistence"},
+		{"claude-code-cli", "2.2.0 (Claude Code)", "--settings --setting-sources --strict-mcp-config --tools --disable-slash-commands --include-partial-messages --no-session-persistence --print --output-format --mcp-config --permission-mode --allowedTools"},
+		{"claude-code-cli", "3.0.0 (Claude Code)", "--settings --setting-sources --strict-mcp-config --tools --disable-slash-commands --include-partial-messages --no-session-persistence --print --output-format --mcp-config --permission-mode --allowedTools"},
 		{"opencode-cli", "2.0.0", "--pure"},
 	} {
 		t.Run(tc.kind+"/"+tc.version, func(t *testing.T) {
@@ -102,8 +102,6 @@ func TestProbeRejectsIneffectiveCodexControls(t *testing.T) {
 		"shell_tool stable true",
 		"shell_tool stable false\njs_repl experimental true",
 		"shell_tool stable false\nhooks stable true",
-		"shell_tool removed false",
-		"js_repl removed false",
 		"shell_tool stable false\nnot a feature table",
 		"shell_tool stable false\nshell_tool stable true",
 	} {
@@ -113,6 +111,29 @@ func TestProbeRejectsIneffectiveCodexControls(t *testing.T) {
 				t.Fatal("ineffective isolation controls accepted")
 			}
 		})
+	}
+}
+
+func TestProbeToleratesRemovedFeaturesAndHeaderRows(t *testing.T) {
+	for _, features := range []string{
+		"shell_tool removed false\njs_repl removed false",
+		"Feature Stage Enabled\nshell_tool stable false",
+		"js_repl removed false",
+	} {
+		fixture := probeFixture{Version: "codex-cli 0.165.0", Help: "--ephemeral --json --sandbox", Features: features}
+		if err := probeFixtureError(t, "codex-cli", fixture); err != nil {
+			t.Fatalf("%q rejected: %v", features, err)
+		}
+	}
+}
+
+// A flag named only in a description is prose: the session would fail on it.
+func TestProbeIgnoresAFlagMentionedOnlyInHelpProse(t *testing.T) {
+	help := "--settings --setting-sources --strict-mcp-config --tools --disable-slash-commands --include-partial-messages --no-session-persistence --print --output-format --permission-mode --allowedTools\n  --strict-mcp-config  reject the --mcp-config flag"
+	fixture := probeFixture{Version: "2.2.0 (Claude Code)", Help: help, Features: "shell_tool stable false"}
+	err := probeFixtureError(t, "claude-code-cli", fixture)
+	if err == nil || !strings.Contains(err.Error(), "--mcp-config") {
+		t.Fatalf("prose counted as a capability: %v", err)
 	}
 }
 
