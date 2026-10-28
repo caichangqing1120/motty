@@ -2,6 +2,21 @@ package term
 
 import "testing"
 
+func TestPromptReadyAcrossEverySplit(t *testing.T) {
+	stream := []byte("\x1b]133;A\x07prompt\x1b]133;B\x1b\\")
+	for cut := 0; cut <= len(stream); cut++ {
+		terminal := New(80, 24, 0)
+		ready := 0
+		terminal.SetPromptReady(func() { ready++ })
+		terminal.Write(stream[:cut])
+		terminal.Write(stream[cut:])
+		terminal.Write([]byte("\x1b]133;C\x07\x1b]133;B;untrusted\x07"))
+		if ready != 1 {
+			t.Fatalf("split %d: prompt-ready calls = %d", cut, ready)
+		}
+	}
+}
+
 func TestWorkingDirectoryReportsAreReadAndDeduplicated(t *testing.T) {
 	terminal := New(80, 24, 0)
 	var seen []Cwd

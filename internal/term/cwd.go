@@ -25,6 +25,10 @@ type Cwd struct {
 // must not block.
 func (t *Terminal) SetCwdChange(fn func(Cwd)) { t.cwdFn = fn }
 
+// SetPromptReady receives OSC 133 B, the end of a shell prompt. Like CwdChange,
+// it runs during Write on the owner's thread and must not block.
+func (t *Terminal) SetPromptReady(fn func()) { t.promptReadyFn = fn }
+
 // WorkingDirectory is the last directory the shell reported, or false.
 func (t *Terminal) WorkingDirectory() (Cwd, bool) { return t.cwd, t.cwd.Path != "" }
 

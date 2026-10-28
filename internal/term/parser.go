@@ -419,6 +419,10 @@ func (t *Terminal) endOSC() {
 		t.osc9(text)
 	case 99:
 		t.osc99(text)
+	case 133:
+		if string(text) == "B" && t.promptReadyFn != nil {
+			t.promptReadyFn()
+		}
 	case 777:
 		t.osc777(text)
 	case 10, 11:

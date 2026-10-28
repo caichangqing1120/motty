@@ -372,6 +372,7 @@ func (state *State) openShell(session *Session) {
 	}
 	cols, rows := t.screen.Size()
 	config := sshconn.ShellConfig{Cols: cols, Rows: rows, Notify: state.notifyFor(session), Command: session.containerCommand}
+	config.IntegrateShell = session.host.isSSH() && session.containerCommand == ""
 	if session.host.ForwardX11 && session.host.isSSH() {
 		environ := x11fwd.CurrentEnviron()
 		config.X11 = &environ

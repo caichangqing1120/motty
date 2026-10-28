@@ -1,0 +1,137 @@
+{
+  "reviewInfo": {
+    "specPath": "docs/specs/001-terminal-folder-sync/spec.md",
+    "featureDir": "docs/specs/001-terminal-folder-sync",
+    "featureName": "Terminal Folder Sync",
+    "pathClass": "architectural",
+    "gate": "APPROVED",
+    "reviewedAt": "2026-10-28",
+    "approvedForSpecVersion": "v1.0.0",
+    "approvalBasis": "Confirmed scope in chat; author requirement review, no independent review claimed.",
+    "resultFilePath": "docs/specs/001-terminal-folder-sync/reviews/2026-10-28-review-decisions.json"
+  },
+  "roles": [
+    {
+      "roleId": "PM",
+      "roleName": "PM",
+      "enabled": true,
+      "coverage": "clear",
+      "note": "Checked against spec acceptance, boundaries and safeguards."
+    },
+    {
+      "roleId": "UX",
+      "roleName": "UX",
+      "enabled": true,
+      "coverage": "clear",
+      "note": "Checked against spec acceptance, boundaries and safeguards."
+    },
+    {
+      "roleId": "AR",
+      "roleName": "AR",
+      "enabled": true,
+      "coverage": "clear",
+      "note": "Checked against spec acceptance, boundaries and safeguards."
+    },
+    {
+      "roleId": "SEC",
+      "roleName": "SEC",
+      "enabled": true,
+      "coverage": "clear",
+      "note": "Checked against spec acceptance, boundaries and safeguards."
+    },
+    {
+      "roleId": "QA",
+      "roleName": "QA",
+      "enabled": true,
+      "coverage": "clear",
+      "note": "Checked against spec acceptance, boundaries and safeguards."
+    }
+  ],
+  "coverage": [
+    {
+      "roleId": "PM",
+      "lens": "PM.success-criteria",
+      "status": "clear",
+      "specAnchor": "功能需求 / 边缘情况 / 测试策略"
+    },
+    {
+      "roleId": "PM",
+      "lens": "PM.scope",
+      "status": "clear",
+      "specAnchor": "功能需求 / 边缘情况 / 测试策略"
+    },
+    {
+      "roleId": "PM",
+      "lens": "PM.roles",
+      "status": "clear",
+      "specAnchor": "功能需求 / 边缘情况 / 测试策略"
+    },
+    {
+      "roleId": "PM",
+      "lens": "PM.journey-fallback",
+      "status": "clear",
+      "specAnchor": "功能需求 / 边缘情况 / 测试策略"
+    },
+    {
+      "roleId": "UX",
+      "lens": "UX.happy-path",
+      "status": "clear",
+      "specAnchor": "功能需求 / 边缘情况 / 测试策略"
+    },
+    {
+      "roleId": "UX",
+      "lens": "UX.states",
+      "status": "clear",
+      "specAnchor": "功能需求 / 边缘情况 / 测试策略"
+    },
+    {
+      "roleId": "UX",
+      "lens": "UX.confirm",
+      "status": "clear",
+      "specAnchor": "功能需求 / 边缘情况 / 测试策略"
+    },
+    {
+      "roleId": "AR",
+      "lens": "AR.dep-fail",
+      "status": "clear",
+      "specAnchor": "功能需求 / 边缘情况 / 测试策略"
+    },
+    {
+      "roleId": "AR",
+      "lens": "AR.source-of-truth",
+      "status": "clear",
+      "specAnchor": "功能需求 / 边缘情况 / 测试策略"
+    },
+    {
+      "roleId": "AR",
+      "lens": "AR.coupling",
+      "status": "clear",
+      "specAnchor": "功能需求 / 边缘情况 / 测试策略"
+    },
+    {
+      "roleId": "SEC",
+      "lens": "SEC.authz",
+      "status": "clear",
+      "specAnchor": "功能需求 / 边缘情况 / 测试策略"
+    },
+    {
+      "roleId": "SEC",
+      "lens": "SEC.sensitive-log",
+      "status": "clear",
+      "specAnchor": "功能需求 / 边缘情况 / 测试策略"
+    },
+    {
+      "roleId": "QA",
+      "lens": "QA.testable",
+      "status": "clear",
+      "specAnchor": "功能需求 / 边缘情况 / 测试策略"
+    },
+    {
+      "roleId": "QA",
+      "lens": "QA.fixture",
+      "status": "clear",
+      "specAnchor": "功能需求 / 边缘情况 / 测试策略"
+    }
+  ],
+  "issues": []
+}
