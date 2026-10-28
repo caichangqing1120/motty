@@ -247,3 +247,54 @@ func TestSFTPPathTemporaryInputRevertsWhenSwitchingFileSides(t *testing.T) {
 	clickSFTPPathFocusHit(t, driver, contextID(hitSFTPPaneToggle))
 	assertSFTPPathBreadcrumbs(t, driver, view)
 }
+
+type pendingPathRemote struct {
+	*workbenchSFTPRemote
+	gate <-chan struct{}
+}
+
+func (remote pendingPathRemote) ReadDir(directory string) ([]os.FileInfo, error) {
+	if directory == "/home/test/docs" {
+		<-remote.gate
+	}
+	return remote.workbenchSFTPRemote.ReadDir(directory)
+}
+
+// Escape cancels the navigation it started, not only the text: a late listing
+// must not move the panel to a directory the user backed out of.
+func TestSFTPPathEscapeAbandonsAPendingNavigation(t *testing.T) {
+	state, session, _, remote := openTestSFTP(t)
+	view := session.files
+	view.worker.Close()
+	<-view.worker.Done()
+	gate := make(chan struct{})
+	var once sync.Once
+	release := func() { once.Do(func() { close(gate) }) }
+	t.Cleanup(release)
+	view.worker = sftpclient.NewWorker(func() (sftpclient.Remote, error) {
+		return pendingPathRemote{remote, gate}, nil
+	}, nil)
+	driver := sftpPathFocusDriver(t, state)
+	clickSFTPPathFocusHit(t, driver, contextID(hitSFTPPathEdit))
+	typeSFTPPathDraft(t, driver, state, "docs")
+	if err := driver.Key(ui.KeyEnter, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := driver.Pump(); err != nil {
+		t.Fatal(err)
+	}
+	if !view.busy || view.pathRequest != "/home/test/docs" {
+		t.Fatalf("navigation was not pending: busy=%v request=%q", view.busy, view.pathRequest)
+	}
+	if result, handled := state.sftpPathKey(ui.KeyEvent{Target: hitSFTPPath, Key: ui.KeyEscape}); !handled || !result.Handled {
+		t.Fatalf("Escape in the path input was not handled: %+v", result)
+	}
+	if view.pathRequest != "" || view.abandonedPath != "/home/test/docs" {
+		t.Fatalf("Escape left the request pending: request=%q abandoned=%q", view.pathRequest, view.abandonedPath)
+	}
+	release()
+	waitSFTP(t, state, session, func(view *sftpView) bool { return !view.busy })
+	if view.path != "/home/test" {
+		t.Fatalf("abandoned navigation moved the panel to %q", view.path)
+	}
+}

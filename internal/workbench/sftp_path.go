@@ -116,6 +116,10 @@ func (state *State) sftpPathKey(event ui.KeyEvent) (ui.EventResult, bool) {
 		}
 	case ui.KeyEscape:
 		if !event.Repeat && !composing {
+			if view.busy && view.pathRequest != "" {
+				// Escape cancels the navigation it started, not just the text.
+				view.abandonedPath, view.pathRequest = view.pathRequest, ""
+			}
 			folder.resetPathInput()
 			if !state.sftpPathInput {
 				folder.pathEditing = false
