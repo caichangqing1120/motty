@@ -1,0 +1,126 @@
+package cli
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"regexp"
+	"strings"
+	"time"
+)
+
+type adapter struct {
+	program  string
+	required []string
+	version  []string
+	help     []string
+	checks   []capabilityCheck
+}
+
+type capabilityCheck struct {
+	label    string
+	args     []string
+	env      []string
+	validate func([]byte) checkFailure
+}
+
+type checkFailure struct{ reason, detail string }
+
+// CompatibilityDiagnostic contains only probe metadata, never subprocess output
+// or credential-bearing arguments. It survives the agent's string event channel.
+type CompatibilityDiagnostic struct {
+	Program string `json:"program"`
+	Version string `json:"version,omitempty"`
+	Reason  string `json:"reason"`
+	Detail  string `json:"detail,omitempty"`
+	Command string `json:"command"`
+}
+
+func (d CompatibilityDiagnostic) Error() string {
+	raw, _ := json.Marshal(d)
+	return "cli: compatibility: " + string(raw)
+}
+
+func ParseCompatibilityDiagnostic(message string) (CompatibilityDiagnostic, bool) {
+	raw, ok := strings.CutPrefix(message, "cli: compatibility: ")
+	var diagnostic CompatibilityDiagnostic
+	if !ok || json.Unmarshal([]byte(raw), &diagnostic) != nil {
+		return diagnostic, false
+	}
+	return diagnostic, diagnostic.Program != "" && diagnostic.Reason != "" && diagnostic.Command != ""
+}
+
+func compatibilityFailure(program string, c command, label, reason, detail string) error {
+	return CompatibilityDiagnostic{Program: program, Version: c.version, Reason: reason, Detail: detail, Command: label}
+}
+
+var cliVersionPattern = regexp.MustCompile(`\b[0-9]+\.[0-9]+\.[0-9]+\b`)
+
+func probe(ctx context.Context, kind string, c *command) error {
+	a, ok := adapters[kind]
+	if !ok {
+		return errors.New("cli: unsupported_provider")
+	}
+	return probeAdapter(ctx, a, c)
+}
+
+func probeAdapter(ctx context.Context, a adapter, c *command) error {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	run := func(runCtx context.Context, args, env []string, limit int) ([]byte, error) {
+		check := *c
+		check.args = append(append([]string{}, c.args...), args...)
+		check.env = append(append([]string{}, c.env...), env...)
+		return capture(runCtx, check, limit)
+	}
+	versionArgs := a.version
+	if len(versionArgs) == 0 {
+		versionArgs = []string{"--version"}
+	}
+	c.version = ""
+	versionCtx, stopVersion := context.WithTimeout(ctx, 2*time.Second)
+	rawVersion, err := run(versionCtx, versionArgs, nil, 64<<10)
+	stopVersion()
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	// Version is diagnostic metadata, not an admission check. Unrecognized
+	// banners and unavailable version commands do not bypass capability checks.
+	if err == nil {
+		c.version = string(cliVersionPattern.Find(rawVersion))
+	}
+	helpArgs := a.help
+	if len(helpArgs) == 0 {
+		helpArgs = []string{"--help"}
+	}
+	raw, err := run(ctx, helpArgs, nil, 2<<20)
+	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return compatibilityFailure(a.program, *c, strings.Join(helpArgs, " "), "unavailable", "")
+	}
+	flags := make(map[string]bool)
+	for _, field := range strings.Fields(string(raw)) {
+		name, _, _ := strings.Cut(strings.Trim(field, ","), "=")
+		flags[name] = true
+	}
+	for _, flag := range a.required {
+		if !flags[flag] {
+			return compatibilityFailure(a.program, *c, strings.Join(helpArgs, " "), "missing_capability", flag)
+		}
+	}
+	for _, check := range a.checks {
+		raw, err := run(ctx, check.args, check.env, 4<<20)
+		if err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			return compatibilityFailure(a.program, *c, check.label, "unavailable", "")
+		}
+		if failure := check.validate(raw); failure.reason != "" {
+			return compatibilityFailure(a.program, *c, check.label, failure.reason, failure.detail)
+		}
+	}
+	return nil
+}
