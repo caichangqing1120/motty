@@ -108,7 +108,7 @@ func TestIntegrationReportsRealShellDirectoriesWithoutChangingProfiles(t *testin
 			}
 			shell, err := localshell.Start(localshell.Config{
 				Shell: "/bin/sh", Args: []string{"-c", "umask 022; " + integrationCommand(program, "pty-test-token")}, Dir: home,
-				Env:  []string{"HOME=" + home, "ZDOTDIR=" + home, "SHELL=" + program, "TMPDIR=" + runtimeDir},
+				Env:  []string{"HOME=" + home, "ZDOTDIR=" + home, "SHELL=" + program, "TMPDIR=" + runtimeDir, "LANG=en_US.UTF-8"},
 				Cols: 120, Rows: 24,
 			})
 			if err != nil {

@@ -105,7 +105,7 @@ const directoryReportFunction = `__motty_report() {
         _motty_char=${PWD:_motty_i:1}
         case $_motty_char in
             [a-zA-Z0-9/._~-]) _motty_path=$_motty_path$_motty_char ;;
-            *) printf -v _motty_hex '%%%02X' "'$_motty_char"; _motty_path=$_motty_path$_motty_hex ;;
+            *) printf -v _motty_hex '%%%02X' "'$_motty_char"; _motty_path=$_motty_path%${_motty_hex: -2} ;;
         esac
     done
     printf '\033]133;A__MOTTY_SUFFIX__\007\033]7;file://%s%s\007' "${HOSTNAME:-${HOST:-}}" "$_motty_path"
@@ -121,6 +121,11 @@ unset MOTTY_SHELL_DIR
 [[ -r /etc/profile ]] && source /etc/profile
 for _motty_profile in "$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.profile"; do
     if [[ -r $_motty_profile ]]; then source "$_motty_profile"; break; fi
+done
+# The login profiles only reach ~/.bashrc when they source it themselves; a
+# server whose interactive setup lives there must still get it.
+for _motty_bashrc in /etc/bash.bashrc "$HOME/.bashrc"; do
+    if [[ -r $_motty_bashrc ]]; then source "$_motty_bashrc"; fi
 done
 ` + directoryReportFunction + `
 _motty_prompt_marker='\[\e]133;B__MOTTY_SUFFIX__\a\]'
