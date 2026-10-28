@@ -10,6 +10,7 @@ import (
 	"github.com/vivaui/viva/text"
 	"github.com/vivaui/viva/ui"
 	"motty/internal/sftpclient"
+	layoutcore "motty/internal/workspace"
 )
 
 func replaceSFTPFilter(t *testing.T, state *State, session *Session, local bool, value string) {
@@ -354,4 +355,43 @@ func containsCanvasText(canvas *ui.Canvas, value string) bool {
 		}
 	}
 	return false
+}
+
+func TestSFTPFilterEscapeClearsThenClosesWithoutClosingThePanel(t *testing.T) {
+	state, session, _, _ := openTestSFTP(t)
+	view := session.files
+	state.showSFTPListing(view, view.path, []sftpclient.Entry{
+		{Name: "notes.txt", Mode: 0o644},
+		{Name: "other.txt", Mode: 0o644},
+	})
+	state.Click(hitSFTPFilterToggle)
+	replaceSFTPFilter(t, state, session, false, "notes")
+	if len(view.sftpFolder.rows) != 1 {
+		t.Fatalf("filter shows %d rows, want 1", len(view.sftpFolder.rows))
+	}
+
+	panelOpen := func() bool {
+		context, ok := state.deck.Context(state.deck.ActiveWorkspace())
+		return ok && context.Open && context.Kind == layoutcore.ContextSFTP
+	}
+
+	result := state.Key(ui.KeyEvent{Target: contextID(hitSFTPFilter), Key: ui.KeyEscape})
+	if !result.Handled || !panelOpen() {
+		t.Fatalf("Escape in the filter closed the panel: %+v", result)
+	}
+	if !view.sftpFolder.filterOpen || view.sftpFolder.filterInputEditor().String() != "" || len(view.sftpFolder.rows) != 2 {
+		t.Fatalf("first Escape did not clear the query: open=%v query=%q rows=%d",
+			view.sftpFolder.filterOpen, view.sftpFolder.filterInputEditor().String(), len(view.sftpFolder.rows))
+	}
+	if result.Focus != contextID(hitSFTPFilter) {
+		t.Fatalf("focus left the filter: %v", result.Focus)
+	}
+
+	result = state.Key(ui.KeyEvent{Target: contextID(hitSFTPFilter), Key: ui.KeyEscape})
+	if !result.Handled || !panelOpen() || view.sftpFolder.filterOpen {
+		t.Fatalf("second Escape did not close the filter or closed the panel: %+v open=%v", result, view.sftpFolder.filterOpen)
+	}
+	if result.Focus != contextID(hitSFTPEntryList.At(0)) {
+		t.Fatalf("closing the filter left focus at %v, want the first file", result.Focus)
+	}
 }

@@ -1314,6 +1314,21 @@ func (state *State) sftpKey(event ui.KeyEvent) (ui.EventResult, bool) {
 	}
 	switch event.Key {
 	case ui.KeyEscape:
+		if folder := view.active(); folder.filterOpen && event.Target == hitSFTPFilter {
+			// Escape leaves the filter, not the file panel: the first press drops
+			// the query, the next closes the row, as a find bar does.
+			if folder.filterInputEditor().String() != "" {
+				folder.clearFilter()
+				state.applySFTPFilter(view, folder, false)
+				return ui.EventResult{Handled: true, Repaint: true, Focus: hitSFTPFilter, FocusVisible: true}, true
+			}
+			folder.filterOpen = false
+			result := ui.EventResult{Handled: true, Repaint: true}
+			if len(folder.rows) > 0 {
+				result.Focus, result.FocusVisible = hitSFTPEntryList.At(0), true
+			}
+			return result, true
+		}
 		if view.bookmarksOpen {
 			view.bookmarksOpen = false
 			return ui.EventResult{Handled: true, Repaint: true}, true
