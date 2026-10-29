@@ -999,7 +999,7 @@ func displayCells(value string) int {
 func (state *State) terminalKey(session *Session, event ui.KeyEvent) ui.EventResult {
 	t := session.term
 	handled := ui.EventResult{Handled: true}
-	if t.preedit.Composing && event.Key == ui.KeyEnter {
+	if t.preedit.Composing && event.Key == ui.KeyEnter && event.Modifiers == 0 && !t.screen.Modes().AltScreen {
 		return handled
 	}
 	if event.Modifiers&ui.ModifierMeta != 0 && !event.Key.IsModifier() {

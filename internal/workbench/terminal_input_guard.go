@@ -347,6 +347,9 @@ func (state *State) receiveInputEnvironment(sessionID uint32, environment term.I
 
 func (state *State) terminalInputNoticeVisible(session *Session) bool {
 	t := session.term
+	// The bar keeps this height while the warning applies, including inside a
+	// full-screen program: hiding it there would add rows to the PTY on entry
+	// and take them back on exit, and vim/tmux would see a resize each time.
 	return t != nil && t.shell != nil && !t.ended && t.commandReporting && !t.inputGuard.dismissed &&
-		t.inputGuard.environment.Charset == "other" && !t.screen.Modes().AltScreen
+		t.inputGuard.environment.Charset == "other"
 }

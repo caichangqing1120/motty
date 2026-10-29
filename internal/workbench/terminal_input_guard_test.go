@@ -271,3 +271,47 @@ func TestTerminalInputLocaleNoticeFitsPTYAndDoesNotJumpOnEveryCommand(t *testing
 	state.Click(hitInputLocaleDismiss)
 	checkSize()
 }
+
+// Entering a full-screen program must not take rows away from the PTY and give
+// them back on exit: vim and tmux would see a resize each time.
+func TestTerminalInputLocaleNoticeKeepsItsRowsInAFullScreenProgram(t *testing.T) {
+	state, _, _, shell := liveSession(t)
+	state.Resize(ui.Size{Width: 1000, Height: 700})
+	session := &state.sessions[0]
+	inputGuardPrompt(state, session, shell, "other", "C.UTF-8")
+	check := func() {
+		t.Helper()
+		cols, rows := session.term.screen.Size()
+		geometry := state.layoutForSession(session.ID)
+		if cols != geometry.cols || rows != geometry.rows {
+			t.Fatalf("terminal %dx%d does not match geometry %dx%d", cols, rows, geometry.cols, geometry.rows)
+		}
+		if !state.terminalInputNoticeVisible(session) {
+			t.Fatal("charset notice collapsed inside a full-screen program")
+		}
+	}
+	check()
+	_, before := session.term.screen.Size()
+	session.term.screen.Write([]byte("\x1b[?1049h"))
+	state.Wake()
+	check()
+	if _, rows := session.term.screen.Size(); rows != before {
+		t.Fatalf("entering the alternate screen changed rows %d -> %d", before, rows)
+	}
+	session.term.screen.Write([]byte("\x1b[?1049l"))
+	state.Wake()
+	check()
+}
+
+// A composing terminal must not swallow the Enter of a program running on the
+// alternate screen: the input method owns that key there, not the shell.
+func TestTerminalIMECompositionKeepsAFullScreenProgramsEnter(t *testing.T) {
+	state, _, _, shell := liveSession(t)
+	session := &state.sessions[0]
+	state.terminalText(session.ID, app.TextEvent{Kind: app.TextSetMarked, Text: "ni"})
+	session.term.screen.Write([]byte("\x1b[?1049h"))
+	state.terminalKey(session, ui.KeyEvent{Key: ui.KeyEnter})
+	if shell.typed() != "\r" {
+		t.Fatalf("full-screen Enter was swallowed: %q", shell.typed())
+	}
+}
