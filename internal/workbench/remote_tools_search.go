@@ -144,6 +144,6 @@ func (state *State) paintRemoteSearch(canvas *ui.Canvas, bounds ui.Rect) {
 	canvas.Label(elide(canvas, state.remote.searchSummary, metrics.FontSizeS, ui.WeightRegular, summary.Width), summary, ui.TextStyle{Size: metrics.FontSizeS, Color: state.pal.muted})
 	canvas.HitWithOptions(hitRemoteSearchScope, summary, state.remote.searchSummary, ui.HitOptions{Role: ui.RoleStatus, SkipFocus: true, Hint: state.remote.searchSummary})
 	if state.remote.snapshotStatus != "" {
-		canvas.HitWithOptions(hitRemoteSnapshotStatus, summary, state.remote.snapshotStatus, ui.HitOptions{Role: ui.RoleStatus, SkipFocus: true, Hint: state.remote.snapshotStatus})
+		canvas.HitWithOptions(hitRemoteSnapshotStatus, summary, state.remote.snapshotStatus, ui.HitOptions{Role: ui.RoleStatus, SkipFocus: true, Hint: state.remote.searchSummary})
 	}
 }

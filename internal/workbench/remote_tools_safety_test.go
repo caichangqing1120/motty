@@ -250,3 +250,27 @@ func BenchmarkRemoteProcessSnapshotSafetyPaint(b *testing.B) {
 		state.Paint(&canvas, size)
 	}
 }
+
+func TestRemoteTruncationHintRemainsReachableThroughDriverHitTest(t *testing.T) {
+	state, _, _ := openRemoteToolsDialog(t)
+	state.remote.processesTruncated = true
+	state.rebuildRemoteRows()
+	var canvas ui.Canvas
+	driver, err := app.NewDriver(app.Config{Title: "narrow snapshot status", Width: 600, Height: 700, Tree: Tree(), Paint: state.Paint, OnKey: state.Key}, &canvas)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer driver.Close()
+	summary, ok := hitByID(&canvas, hitRemoteSearchScope)
+	if !ok {
+		t.Fatal("no search summary")
+	}
+	id, ok := driver.HitTest(summary.Bounds.X+summary.Bounds.Width/2, summary.Bounds.Y+summary.Bounds.Height/2)
+	if !ok {
+		t.Fatal("summary has no pointer target")
+	}
+	hit, ok := hitByID(&canvas, id)
+	if !ok || hit.Hint != state.remote.searchSummary || !strings.Contains(hit.Hint, state.messages.Tools.RemoteSearchLimited) {
+		t.Fatalf("actual summary pointer target hides bounded search scope: id=%v hint=%q", id, hit.Hint)
+	}
+}

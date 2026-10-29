@@ -173,3 +173,77 @@ func TestGuardedShellRefusesExitedProcessAndHonorsCancellation(t *testing.T) {
 		t.Fatalf("canceled action dispatched: %s", fmt.Sprint(err, untouched.asked))
 	}
 }
+
+func TestMalformedStatPrefixCannotMutate(t *testing.T) {
+	runner := procFixture(t, "100", "worker")
+	malformed := "42 (worker) not-a-state" + strings.Repeat(" not-a-number", 18) + " 100\n"
+	if err := os.WriteFile(filepath.Join(runner.root, "42/stat"), []byte(malformed), 0600); err != nil {
+		t.Fatal(err)
+	}
+	process := Process{PID: 42, StartIdentity: "linux:" + guardBoot + ":100"}
+	err := SendSignalToProcess(context.Background(), runner, process, Kill)
+	actions, _ := os.ReadFile(runner.log)
+	if !errors.Is(err, ErrProcessUnverifiable) || len(actions) != 0 {
+		t.Fatalf("malformed stat accepted: err=%v actions=%q", err, actions)
+	}
+}
+
+func TestGuardedStatPrefixValidatesStateAndNumericFieldTypes(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		field int
+		value string
+		valid bool
+	}{
+		{"signed-fields", 0, "", true},
+		{"traced-state", 3, "t", true},
+		{"historical-state", 3, "W", true},
+		{"idle-state", 3, "I", true},
+		{"unknown-state", 3, "?", false},
+		{"multi-letter-state", 3, "running", false},
+		{"malformed-ppid", 4, "1x", false},
+		{"signed-tty", 7, "-1234", true},
+		{"unsigned-flags", 9, "-1", false},
+		{"malformed-fault-count", 12, "1.5", false},
+		{"unsigned-cpu-time", 14, "-1", false},
+		{"malformed-child-time", 16, "2x", false},
+		{"sign-only-priority", 18, "-", false},
+		{"malformed-niceness", 19, "1;echo", false},
+		{"unsigned-start", 22, "-100", false},
+		{"overlong-field", 10, strings.Repeat("9", 21), false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			for _, nice := range []bool{false, true} {
+				runner := procFixture(t, "100", "worker")
+				// Fields 3..24: signed tpgid, child times, priority and nice are legal.
+				fields := strings.Fields("S 1 2 3 0 -1 4194304 0 0 0 0 3 4 -5 -6 -7 -8 1 0 100 0 0")
+				if test.field != 0 {
+					fields[test.field-3] = test.value
+				}
+				stat := "42 (worker ) with (parentheses)) " + strings.Join(fields, " ") + "\n"
+				if err := os.WriteFile(filepath.Join(runner.root, "42/stat"), []byte(stat), 0600); err != nil {
+					t.Fatal(err)
+				}
+				process := Process{PID: 42, StartIdentity: "linux:" + guardBoot + ":100"}
+				var err error
+				if nice {
+					err = ReniceProcess(context.Background(), runner, process, -5)
+				} else {
+					err = SendSignalToProcess(context.Background(), runner, process, Kill)
+				}
+				actions, _ := os.ReadFile(runner.log)
+				if test.valid {
+					if err != nil || len(actions) == 0 {
+						t.Fatalf("legal signed/state fields rejected: nice=%v err=%v actions=%q", nice, err, actions)
+					}
+				} else if !errors.Is(err, ErrProcessUnverifiable) || len(actions) != 0 {
+					t.Fatalf("malformed field %d accepted: nice=%v err=%v actions=%q", test.field, nice, err, actions)
+				}
+				output, probeErr := runner.RunCommand(context.Background(), processIdentityCommand, 1<<20)
+				if probeErr != nil || strings.Contains(string(output), "\n42 100\n") != test.valid {
+					t.Fatalf("snapshot probe disagrees with guarded action: output=%q err=%v", output, probeErr)
+				}
+			}
+		})
+	}
+}

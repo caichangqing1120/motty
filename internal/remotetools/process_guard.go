@@ -26,9 +26,19 @@ set -f
 set -- $rest
 set +f
 [ "$#" -ge 20 ] || return 1
-shift 19
-ticks=$1
-case "$ticks" in ''|*[!0-9]*) return 1 ;; esac
+case "$1" in R|S|D|Z|T|t|W|X|x|K|P|I) ;; *) return 1 ;; esac
+shift
+field=4
+# stat fields 4..8 and 16..21 are signed; flags, counters and start ticks are not.
+while [ "$field" -le 22 ]; do
+  number=$1
+  case "$field" in 4|5|6|7|8|16|17|18|19|20|21) number=${number#-} ;; esac
+  case "$number" in ''|*[!0-9]*) return 1 ;; esac
+  [ "${#number}" -le 20 ] || return 1
+  if [ "$field" -eq 22 ]; then ticks=$number; fi
+  shift
+  field=$((field+1))
+done
 `
 
 const processIdentityCommand = `# motty-process-identities
