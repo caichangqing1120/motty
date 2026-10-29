@@ -250,3 +250,29 @@ func TestLocalScopeReviewNativeHiddenLoadedItemsRemainReadable(t *testing.T) {
 		}
 	})
 }
+
+// A query that only matches hidden rows is not "no matches": the folder's own
+// filter is what keeps them out, and the empty state has to say so.
+func TestLocalScopeFilterMatchThatIsHiddenIsNotReportedAsAbsent(t *testing.T) {
+	state, session, _, _ := openTestSFTP(t)
+	partial := hiddenPartialScope(t)
+	view := openLocalPane(t, state, session, partial.dir)
+	state.applyLocalListing(view, partial, view.localSeq)
+	view.lfolder.filterInputEditor().Insert("hidden")
+	state.applySFTPFilter(view, &view.lfolder, false)
+	if len(view.lfolder.rows) != 0 {
+		t.Fatalf("a hidden match stayed visible: %d rows", len(view.lfolder.rows))
+	}
+	if got := view.lfolder.coverageEmpty; got != state.messages.Tools.FilesLoadedMatchesHidden {
+		t.Fatalf("empty state = %q, want the hidden-match message", got)
+	}
+	preview, err := headless.Open(app.Config{
+		Title: "Hidden match", Width: 1000, Height: 520, Tree: Tree(),
+		Paint: state.Paint, OnPointer: state.Pointer, OnKey: state.Key, OnShortcut: state.Shortcut,
+	}, nil, headless.Options{Scale: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer preview.Close()
+	dualText(t, preview, state.messages.Tools.FilesLoadedMatchesHidden)
+}

@@ -220,14 +220,20 @@ func (state *State) applySFTPFilter(view *sftpView, folder *sftpFolder, clearSel
 		rows = make([]sftpRow, 0, len(folder.allRows))
 	}
 	shown := make([]bool, len(folder.allRows))
+	folder.hiddenMatch = false
 	for index := range folder.allRows {
 		row := folder.allRows[index]
 		row.matchStart, row.matchEnd = 0, 0
-		if row.hidden && !folder.showHidden {
-			continue
-		}
-		if query != "" {
+		if query == "" {
+			if row.hidden && !folder.showHidden {
+				continue
+			}
+		} else {
 			start, end, ok := sftpFilterMatch(row.entry.Name, query)
+			if row.hidden && !folder.showHidden {
+				folder.hiddenMatch = folder.hiddenMatch || ok
+				continue
+			}
 			if !ok {
 				continue
 			}
@@ -296,6 +302,9 @@ func (state *State) refreshLocalCoverage(folder *sftpFolder) {
 	}
 	if folder.filterInputEditor().String() != "" {
 		folder.coverageEmpty = m.FilesLoadedNoMatches
+		if folder.hiddenMatch {
+			folder.coverageEmpty = m.FilesLoadedMatchesHidden
+		}
 	}
 }
 

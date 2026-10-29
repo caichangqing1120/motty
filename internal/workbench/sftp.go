@@ -79,6 +79,7 @@ type sftpFolder struct {
 	coverageLabel  string // bounded scope, formatted when a listing/filter changes
 	coverageText   string // full semantic warning, independent of ordinary feedback
 	coverageEmpty  string
+	hiddenMatch    bool // the query matches rows this folder hides
 }
 
 type sftpView struct {

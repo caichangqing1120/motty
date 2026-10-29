@@ -1292,6 +1292,7 @@ var englishTools = ToolsMessages{
 	FilesLoadedEmpty:                "No readable items loaded",
 	FilesLoadedNoneVisible:          "No visible loaded items",
 	FilesLoadedNoMatches:            "No matches in loaded items",
+	FilesLoadedMatchesHidden:        "Matches are hidden; show hidden files to see them",
 	FilesMore:                       "More file actions",
 	FilesShowHidden:                 "Show hidden files",
 	FilesHideHidden:                 "Hide hidden files",

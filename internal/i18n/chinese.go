@@ -1292,6 +1292,7 @@ var chineseTools = ToolsMessages{
 	FilesLoadedEmpty:                "未加载到可读取的项目",
 	FilesLoadedNoneVisible:          "没有可见的已加载项目",
 	FilesLoadedNoMatches:            "已加载项目中无匹配结果",
+	FilesLoadedMatchesHidden:        "匹配项已隐藏，显示隐藏文件后可查看",
 	FilesMore:                       "更多文件操作",
 	FilesShowHidden:                 "显示隐藏文件",
 	FilesHideHidden:                 "隐藏隐藏文件",

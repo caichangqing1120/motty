@@ -251,6 +251,7 @@ type ToolsMessages struct {
 	FilesLoadedEmpty                string
 	FilesLoadedNoneVisible          string
 	FilesLoadedNoMatches            string
+	FilesLoadedMatchesHidden        string
 	FilesMore                       string
 	FilesShowHidden                 string
 	FilesHideHidden                 string
