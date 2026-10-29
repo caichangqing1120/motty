@@ -410,3 +410,31 @@ func TestSFTPPanelDefaultOrderingPreservesExistingListing(t *testing.T) {
 		t.Fatalf("new sort affordance changed default listing order: %s", got)
 	}
 }
+
+func TestSFTPWindowNativeFindFromRemoteToolbarAfterTab(t *testing.T) {
+	for _, target := range []ui.ID{hitSFTPWindowUpload, hitSFTPWindowDownload, hitSFTPBookmarkList, hitSFTPBookmarkToggle} {
+		t.Run(tree.Text(target), func(t *testing.T) {
+			_, w, _, host, _ := dualSFTPFixture(t, 1)
+			view := host.windows[0].view
+			dualClickID(t, view, dualRow(t, w, false, "notes.txt"))
+			dualClickID(t, view, dualRow(t, w, true, "中文上传.yml"))
+			for steps := 0; view.Snapshot().Focused != target; steps++ {
+				if steps >= 80 {
+					t.Fatal("remote control not keyboard reachable")
+				}
+				if err := view.Driver().Key(ui.KeyTab, 0); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if !w.activeLocal {
+				t.Fatal("fixture passed remote path editor instead of exercising toolbar focus")
+			}
+			if _, err := view.Driver().ShortcutChord(defaultShortcutModifier(), 'f'); err != nil {
+				t.Fatal(err)
+			}
+			if view.Snapshot().Focused != sftpWindowFilter[1] || !w.view.filterOpen || w.view.lfolder.filterOpen {
+				t.Fatalf("Tab-focused remote control opened wrong side filter: focus=%s local=%t", tree.Text(view.Snapshot().Focused), w.activeLocal)
+			}
+		})
+	}
+}

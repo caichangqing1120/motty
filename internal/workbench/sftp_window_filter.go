@@ -19,6 +19,10 @@ func (w *sftpWindow) closeHeaderMenu() {
 }
 
 func (w *sftpWindow) targetSide(id ui.ID) (bool, bool) {
+	switch id {
+	case hitSFTPBookmarkList, hitSFTPBookmarkToggle, hitSFTPNewLink, hitSFTPWindowUpload, hitSFTPWindowDownload:
+		return false, true
+	}
 	if local, _, ok := w.rowTarget(id); ok {
 		return local, true
 	}
