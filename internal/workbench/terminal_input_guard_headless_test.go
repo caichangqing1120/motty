@@ -108,3 +108,42 @@ func TestTerminalInputGuardNativeChoiceAndLocaleNotice(t *testing.T) {
 		})
 	}
 }
+
+func TestTerminalInputGuardNativeSpaceActivatesFocusedChoice(t *testing.T) {
+	for _, choice := range []struct {
+		name   string
+		tabs   int
+		target ui.ID
+		want   string
+	}{
+		{"cancel", 0, hitInputCancel, ""}, {"keep", 1, hitInputKeep, "\u2014"}, {"replace", 2, hitInputReplace, "-"},
+	} {
+		t.Run(choice.name, func(t *testing.T) {
+			state, _, _, shell := liveSession(t)
+			owner := &state.sessions[0]
+			inputGuardPrompt(state, owner, shell, "utf8", "")
+			state.terminalText(owner.ID, app.TextEvent{Kind: app.TextInsert, Text: "\u2014"})
+			driver := paneDriver(t, state, ui.Size{Width: 840, Height: 600})
+			if err := driver.Pump(); err != nil {
+				t.Fatal(err)
+			}
+			if driver.Snapshot().Focused != hitInputCancel {
+				t.Fatal("initial choice was not cancel")
+			}
+			for range choice.tabs {
+				if err := driver.Key(ui.KeyTab, 0); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if driver.Snapshot().Focused != choice.target {
+				t.Fatal("Tab did not reach explicit replacement")
+			}
+			if err := driver.Key(ui.KeySpace, 0); err != nil {
+				t.Fatal(err)
+			}
+			if state.modal != modalNone || shell.typed() != choice.want {
+				t.Fatalf("Space did not activate focused choice: modal=%v input=%q", state.modal, shell.typed())
+			}
+		})
+	}
+}

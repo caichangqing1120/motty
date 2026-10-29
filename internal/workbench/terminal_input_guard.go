@@ -323,7 +323,7 @@ func (state *State) terminalInputKey(event ui.KeyEvent) (ui.EventResult, bool) {
 		if event.Key == ui.KeyEscape {
 			state.clickTerminalInput(hitInputCancel)
 		}
-		if event.Key == ui.KeyEnter && (event.Target == hitInputReplace || event.Target == hitInputKeep || event.Target == hitInputCancel) {
+		if (event.Key == ui.KeyEnter || event.Key == ui.KeySpace) && (event.Target == hitInputReplace || event.Target == hitInputKeep || event.Target == hitInputCancel) {
 			state.clickTerminalInput(event.Target)
 		}
 	}
