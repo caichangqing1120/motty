@@ -1200,6 +1200,13 @@ var englishTools = ToolsMessages{
 	FontPickerSample:        "The quick brown fox jumps over the lazy dog",
 	FontPickerSampleSymbols: "0123456789 {}[]() <> -> == != ~ $ # | iIl1 oO0",
 
+	FontFallbackRow:         "Fallback fonts",
+	FontFallbackEmpty:       "Characters the font lacks, such as Chinese, are drawn by the system. Add fonts to choose which, in order.",
+	FontFallbackFmt:         "In order: %s. Used for characters the font above lacks.",
+	FontFallbackAdd:         "Add",
+	FontFallbackClear:       "Clear",
+	FontFallbackPickerTitle: "Fallback font",
+
 	NotifyRow:         "Desktop notifications",
 	NotifyDescription: "Show a system notification when a program in the terminal asks for one (OSC 9, 777 and 99). At most one a second per terminal.",
 
@@ -1415,6 +1422,10 @@ var englishTools = ToolsMessages{
 	LaunchConnect:                   "Connect",
 	GeneralLogin:                    "Start at login",
 	GeneralLoginDescription:         "Start Motty in the background after you sign in.",
+	GeneralClose:                    "Closing the window",
+	GeneralCloseDescription:         "After the last window closes, keep running in the tray or quit.",
+	GeneralCloseTray:                "Stay in tray",
+	GeneralCloseQuit:                "Quit",
 	GeneralUpdate:                   "Check for updates",
 	GeneralUpdateDescription:        "Looks for a newer version on GitHub and opens its download page. Nothing is installed for you.",
 	GeneralUpdateCheck:              "Check now",

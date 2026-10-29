@@ -81,7 +81,7 @@ func (state *State) setTerminalFontSize(value float32) bool {
 }
 
 func (state *State) setTerminalFontFace(face ui.MonoFace) bool {
-	if face > ui.MonoClassic && ui.MonoFamilyName(face) == "" {
+	if face > ui.MonoClassic && ui.MonoFamilyName(face) == "" && len(ui.MonoFallbacks(face)) == 0 && !ui.MonoIsClassic(face) {
 		face = ui.MonoSystem
 	}
 	if state.terminalFontFace == face {
@@ -93,8 +93,8 @@ func (state *State) setTerminalFontFace(face ui.MonoFace) bool {
 	return true
 }
 
-func terminalFontFaceString(face ui.MonoFace) string {
-	if face == ui.MonoClassic {
+func terminalFontFaceString(classic bool) string {
+	if classic {
 		return "classic"
 	}
 	return "system" // a named family is kept beside it, in its own field
@@ -126,6 +126,29 @@ func terminalOptionModeFromString(value string) terminalOptionMode {
 		return terminalOptionMeta
 	}
 	return terminalOptionText
+}
+
+// closeAction is what closing the last window does while the application has an
+// icon in the status area: keep running there, or quit.
+type closeAction uint8
+
+const (
+	closeToTray closeAction = iota
+	closeQuits
+)
+
+func (action closeAction) String() string {
+	if action == closeQuits {
+		return "quit"
+	}
+	return "tray"
+}
+
+func closeActionFromString(value string) closeAction {
+	if value == closeQuits.String() {
+		return closeQuits
+	}
+	return closeToTray
 }
 
 func (state *State) openSettings() {
@@ -249,6 +272,12 @@ func (state *State) clickSettings(id ui.ID) bool {
 		changed = state.chooseAppearanceMode(appearancePinnedDark)
 	case hitSettingsAppearanceLight:
 		changed = state.chooseAppearanceMode(appearancePinnedLight)
+	case hitSettingsCloseTray:
+		changed = state.closeAction != closeToTray
+		state.closeAction = closeToTray
+	case hitSettingsCloseQuit:
+		changed = state.closeAction != closeQuits
+		state.closeAction = closeQuits
 	case hitSettingsOptionText:
 		changed = state.terminalOption != terminalOptionText
 		state.terminalOption = terminalOptionText
@@ -378,6 +407,14 @@ func (state *State) settingsAppearanceOptions() [3]components.SegmentOption {
 	}
 }
 
+func (state *State) settingsCloseOptions() [2]components.SegmentOption {
+	m := state.messages.Tools
+	return [...]components.SegmentOption{
+		{ID: hitSettingsCloseTray, Label: m.GeneralCloseTray},
+		{ID: hitSettingsCloseQuit, Label: m.GeneralCloseQuit},
+	}
+}
+
 func (state *State) settingsOptionOptions() [2]components.SegmentOption {
 	return [...]components.SegmentOption{
 		{ID: hitSettingsOptionText, Label: state.messages.SettingsTerminalOptionText},
@@ -478,6 +515,9 @@ func (state *State) settingsKey(event ui.KeyEvent) (ui.EventResult, bool) {
 		next, handled = components.SegmentedControlKeyDown(event.Target, options[:], components.DirectionLTR, event.Key)
 	case hitSettingsAppearanceSystem, hitSettingsAppearanceDark, hitSettingsAppearanceLight:
 		options := state.settingsAppearanceOptions()
+		next, handled = components.SegmentedControlKeyDown(event.Target, options[:], components.DirectionLTR, event.Key)
+	case hitSettingsCloseTray, hitSettingsCloseQuit:
+		options := state.settingsCloseOptions()
 		next, handled = components.SegmentedControlKeyDown(event.Target, options[:], components.DirectionLTR, event.Key)
 	case hitSettingsOptionText, hitSettingsOptionMeta:
 		options := state.settingsOptionOptions()

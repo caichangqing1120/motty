@@ -112,6 +112,7 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
+	log.Print("motty: exiting normally")
 }
 
 func mainWindowTitle() string { return buildinfo.ProductName }
@@ -234,9 +235,11 @@ func openWorkbenchWindow(application *app.Application, status *tray, hub *workbe
 	// has sessions hides (the connections go on, and the icon brings the window
 	// back), and so does the last window, so that closing it leaves the
 	// application in the status area instead of quitting it. Any other window
-	// with nothing in it just closes.
+	// with nothing in it just closes, and so does every window when the user
+	// chose in Settings that closing quits.
 	requestClose := func(allow func()) {
-		if status.hasStatusArea() && (state.WantsToStay() || status.list.WindowCount() <= 1) {
+		if status.hasStatusArea() && state.StaysInTray() && (state.WantsToStay() || status.list.WindowCount() <= 1) {
+			log.Print("motty: window hidden to the status area; the program keeps running")
 			mainWindow.Hide()
 			return
 		}
@@ -261,6 +264,7 @@ func openWorkbenchWindow(application *app.Application, status *tray, hub *workbe
 		PreferredLanguages: preferredLanguages,
 		Raise:              func() { mainWindow.Show() },
 		StartAtLogin:       loginStart(),
+		StatusArea:         status.hasStatusArea,
 		Updater:            updater(),
 		Quit:               func() { windows.quitWithDocuments(application.Quit) },
 		AISettingsChanged: func() {
@@ -349,6 +353,7 @@ func openWorkbenchWindow(application *app.Application, status *tray, hub *workbe
 		OnFrameChange: state.NoteWindowFrame,
 		OnMinimize:    state.SetWindowMinimized,
 		OnClosed: func() {
+			log.Print("motty: window closed")
 			windows.remove(state)
 			hub.Remove(state)
 			state.Close()
