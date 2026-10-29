@@ -3,15 +3,7 @@ package i18n
 // The Chinese catalog lives here, one file per language.
 
 var ChineseMessages = Messages{
-	TerminalInput: TerminalInputMessages{
-		Title: "检查命令字符", Description: "这个字符与命令符号相似。本次文字尚未发送，请明确选择；选择本身不会执行命令。",
-		Replace: "改用半角", Keep: "保留原文", Cancel: "取消本次输入", Canceled: "已取消本次待发送文字，之前输入的内容未修改。", Stale: "终端上下文已变化，待发送文字未发送。",
-		LocaleWarning: "当前 shell 不是 UTF-8，中文退格可能留下残缺字节。", LocaleUnavailable: "当前 shell 不是 UTF-8，且未找到已验证可用的 UTF-8 locale。",
-		LocaleFix: "启用 UTF-8", LocaleBusy: "仅在空闲且没有已输入命令的提示符可用，不会清空现有输入。", LocaleTitle: "修复当前会话的字符处理？",
-		LocaleBodyFmt: "仅在当前 shell 使用已验证的 %s。与 locale 有关的格式可能改变，不修改系统设置或启动文件。确认时命令行仍须为空。", LocaleConfirm: "修复当前会话",
-		LocaleRepairing: "正在等待 shell 确认 UTF-8…", LocaleSuccess: "当前 shell 已确认 UTF-8，中文编辑可按完整字符处理。", LocaleFailed: "shell 未确认 UTF-8，未继续尝试修改。",
-		SendFailed: "终端暂时无法接收本次输入，内容尚未发送。可以重试选择或取消。", LocaleDismiss: "本会话不再显示此提示", LocaleCanceled: "已取消会话修复，shell 环境未修改。",
-	},
+	Monitor: chineseMonitor,
 	SFTPWindow: SFTPWindowMessages{
 		LocalPlaces: "收藏与快捷位置", DirectoryFavorites: "目录收藏", CommonFolders: "常用目录", LocalDrives: "磁盘", FavoriteAdd: "收藏当前目录", FavoriteRemove: "取消收藏当前目录", FavoriteLimit: "目录收藏已达上限，请先移除不再使用的收藏。",
 		LocalHome: "主目录", LocalDesktop: "桌面", LocalDownloads: "下载", LocalDocuments: "文档", LocalPictures: "图片", LocalMusic: "音乐", LocalVideos: "视频", LocalMovies: "影片", LocalApplications: "应用程序",
@@ -40,6 +32,16 @@ var ChineseMessages = Messages{
 		CannotOpen: "无法预览文件", Unsupported: "此文件格式暂不支持预览", TooLarge: "预览上限：图片 16 MiB，文本 1 MiB", TooMany: "请先关闭部分预览窗口（最多 8 个）", ImageTooLarge: "图片超过 1600 万像素，暂不支持预览",
 		ConfirmTitle: "有未保存的更改", ConfirmClose: "保存后关闭，还是放弃这些更改？", ConfirmReload: "重新载入将丢失未保存的更改。", SaveClose: "保存并关闭", Discard: "放弃更改", Cancel: "取消",
 		Local: "本机", Remote: "服务器", ReadOnly: "图片预览 · 只读", EncodingChanged: "切换编码会重新解释原文件，请先保存或放弃当前更改。",
+	},
+
+	TerminalInput: TerminalInputMessages{
+		Title: "检查命令字符", Description: "这个字符与命令符号相似。本次文字尚未发送，请明确选择；选择本身不会执行命令。",
+		Replace: "改用半角", Keep: "保留原文", Cancel: "取消本次输入", Canceled: "已取消本次待发送文字，之前输入的内容未修改。", Stale: "终端上下文已变化，待发送文字未发送。",
+		LocaleWarning: "当前 shell 不是 UTF-8，中文退格可能留下残缺字节。", LocaleUnavailable: "当前 shell 不是 UTF-8，且未找到已验证可用的 UTF-8 locale。",
+		LocaleFix: "启用 UTF-8", LocaleBusy: "仅在空闲且没有已输入命令的提示符可用，不会清空现有输入。", LocaleTitle: "修复当前会话的字符处理？",
+		LocaleBodyFmt: "仅在当前 shell 使用已验证的 %s。与 locale 有关的格式可能改变，不修改系统设置或启动文件。确认时命令行仍须为空。", LocaleConfirm: "修复当前会话",
+		LocaleRepairing: "正在等待 shell 确认 UTF-8…", LocaleSuccess: "当前 shell 已确认 UTF-8，中文编辑可按完整字符处理。", LocaleFailed: "shell 未确认 UTF-8，未继续尝试修改。",
+		SendFailed: "终端暂时无法接收本次输入，内容尚未发送。可以重试选择或取消。", LocaleDismiss: "本会话不再显示此提示", LocaleCanceled: "已取消会话修复，shell 环境未修改。",
 	},
 
 	Transfers: TransferCenterMessages{
@@ -1263,6 +1265,7 @@ var chineseTools = ToolsMessages{
 	ImportWarningSkippedFmt:   "有 %d 个会话的类型不支持导入（远程桌面、文件传输、该软件的串口等），已跳过。",
 	ImportWarningPasswords:    "不会导入已保存的密码：各个软件都用自己的方式加密了它们。",
 	ImportWarningCleartextFmt: "有 %d 个会话在此文件里以明文保存了密码或私钥。这些内容没有被导入；导入完成后请删除该文件。",
+	ImportWarningLoopback:     "有会话指向本机（127.0.0.1 / localhost）。这通常是其他客户端打开的一次性隧道，隧道关闭后就无法再连。建议直接打开 .xsh 文件，或手动填写当前端口。",
 
 	BroadcastStart:            "同时输入到本标签页的所有窗格",
 	BroadcastStop:             "停止同时输入",
@@ -1423,6 +1426,8 @@ var chineseTools = ToolsMessages{
 	LaunchDescriptionFmt:            "通过 %[1]s 连接到 %[2]s?",
 	LaunchWarning:                   "其他程序请求了这次连接。仅在你预期它时才连接。",
 	LaunchConnect:                   "连接",
+	LaunchXshellFailedFmt:           "无法打开 %s：%v",
+	LaunchXshellEmptyFmt:            "%s 里没有可打开的 SSH 或 Telnet 会话。",
 	GeneralLogin:                    "开机自启",
 	GeneralLoginDescription:         "登录后在后台启动。",
 	GeneralClose:                    "关闭窗口时",

@@ -3,15 +3,7 @@ package i18n
 // The English catalog lives here, one file per language.
 
 var EnglishMessages = Messages{
-	TerminalInput: TerminalInputMessages{
-		Title: "Check command character", Description: "This character resembles shell syntax. The pending text has not been sent. Choose explicitly; no choice executes the command.",
-		Replace: "Use ASCII", Keep: "Keep original", Cancel: "Cancel input", Canceled: "The pending input was canceled; previously typed text is unchanged.", Stale: "The terminal context changed. Pending input was not sent.",
-		LocaleWarning: "This shell is not using UTF-8. Editing Chinese text may leave broken bytes.", LocaleUnavailable: "This shell is not using UTF-8; no verified UTF-8 locale is available.",
-		LocaleFix: "Enable UTF-8", LocaleBusy: "Available at an empty idle shell prompt; existing input is never erased.", LocaleTitle: "Repair this session's character handling?",
-		LocaleBodyFmt: "Use the verified locale %s in this shell only. Locale-sensitive formatting may change. No system settings or startup files are modified. The command line must still be empty when you confirm.", LocaleConfirm: "Repair this session",
-		LocaleRepairing: "Waiting for the shell to confirm UTF-8…", LocaleSuccess: "The current shell confirmed UTF-8. Chinese editing can now use complete characters.", LocaleFailed: "The shell did not confirm UTF-8. No further repair was attempted.",
-		SendFailed: "The terminal could not queue this input. Nothing was sent; you can retry your choice or cancel.", LocaleDismiss: "Hide this warning for this session", LocaleCanceled: "Session repair canceled; the shell environment is unchanged.",
-	},
+	Monitor: englishMonitor,
 	SFTPWindow: SFTPWindowMessages{
 		LocalPlaces: "Favorites and places", DirectoryFavorites: "Folder favorites", CommonFolders: "Quick access", LocalDrives: "Drives", FavoriteAdd: "Bookmark current folder", FavoriteRemove: "Remove current folder bookmark", FavoriteLimit: "The folder bookmark limit has been reached. Remove an unused bookmark first.",
 		LocalHome: "Home", LocalDesktop: "Desktop", LocalDownloads: "Downloads", LocalDocuments: "Documents", LocalPictures: "Pictures", LocalMusic: "Music", LocalVideos: "Videos", LocalMovies: "Movies", LocalApplications: "Applications",
@@ -40,6 +32,16 @@ var EnglishMessages = Messages{
 		CannotOpen: "Cannot preview file", Unsupported: "This file format cannot be previewed", TooLarge: "Preview limit: 16 MiB for images, 1 MiB for text", TooMany: "Close a preview window before opening more files (limit: 8)", ImageTooLarge: "The image exceeds the 16 megapixel preview limit",
 		ConfirmTitle: "Unsaved changes", ConfirmClose: "Save before closing, or discard the changes?", ConfirmReload: "Reloading will discard the unsaved changes.", SaveClose: "Save and close", Discard: "Discard", Cancel: "Cancel",
 		Local: "Local", Remote: "Server", ReadOnly: "Image preview · read only", EncodingChanged: "Encoding changes reinterpret the original bytes; save or discard edits first.",
+	},
+
+	TerminalInput: TerminalInputMessages{
+		Title: "Check command character", Description: "This character resembles shell syntax. The pending text has not been sent. Choose explicitly; no choice executes the command.",
+		Replace: "Use ASCII", Keep: "Keep original", Cancel: "Cancel input", Canceled: "The pending input was canceled; previously typed text is unchanged.", Stale: "The terminal context changed. Pending input was not sent.",
+		LocaleWarning: "This shell is not using UTF-8. Editing Chinese text may leave broken bytes.", LocaleUnavailable: "This shell is not using UTF-8; no verified UTF-8 locale is available.",
+		LocaleFix: "Enable UTF-8", LocaleBusy: "Available at an empty idle shell prompt; existing input is never erased.", LocaleTitle: "Repair this session's character handling?",
+		LocaleBodyFmt: "Use the verified locale %s in this shell only. Locale-sensitive formatting may change. No system settings or startup files are modified. The command line must still be empty when you confirm.", LocaleConfirm: "Repair this session",
+		LocaleRepairing: "Waiting for the shell to confirm UTF-8…", LocaleSuccess: "The current shell confirmed UTF-8. Chinese editing can now use complete characters.", LocaleFailed: "The shell did not confirm UTF-8. No further repair was attempted.",
+		SendFailed: "The terminal could not queue this input. Nothing was sent; you can retry your choice or cancel.", LocaleDismiss: "Hide this warning for this session", LocaleCanceled: "Session repair canceled; the shell environment is unchanged.",
 	},
 
 	Transfers: TransferCenterMessages{
@@ -1263,6 +1265,7 @@ var englishTools = ToolsMessages{
 	ImportWarningSkippedFmt:   "%d sessions are of a kind that is not imported (remote desktop, file transfer, serial ports from this client…) and were skipped.",
 	ImportWarningPasswords:    "Saved passwords are not imported: each program encrypts them its own way.",
 	ImportWarningCleartextFmt: "%d sessions keep a password or private key in this file in clear text. None of it was imported; delete the file when you are done.",
+	ImportWarningLoopback:     "A session points at this computer (127.0.0.1 / localhost). That is usually a one-shot tunnel from another client; it stops working when the tunnel closes. Prefer opening the .xsh file directly, or type the current port by hand.",
 
 	BroadcastStart:            "Type into every pane of this tab",
 	BroadcastStop:             "Stop typing into every pane",
@@ -1423,6 +1426,8 @@ var englishTools = ToolsMessages{
 	LaunchDescriptionFmt:            "Connect to %[2]s over %[1]s?",
 	LaunchWarning:                   "Another program asked for this connection. Connect only if you expect it.",
 	LaunchConnect:                   "Connect",
+	LaunchXshellFailedFmt:           "Could not open %s: %v",
+	LaunchXshellEmptyFmt:            "%s has no SSH or Telnet session to open.",
 	GeneralLogin:                    "Start at login",
 	GeneralLoginDescription:         "Start Motty in the background after you sign in.",
 	GeneralClose:                    "Closing the window",

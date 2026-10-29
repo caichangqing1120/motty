@@ -400,7 +400,7 @@ func (state *State) startConnection(session *Session, host Host) {
 }
 
 func (state *State) startConnectionMode(session *Session, host Host, automatic bool) {
-	avoidShare := session.avoidShare
+	avoidShare := session.avoidShare || loopbackTunnel(host)
 	session.avoidShare = false
 	state.stopSessionForwards(session.ID, false)
 	state.closeSFTP(session)
@@ -591,6 +591,12 @@ func (state *State) Wake() {
 		// Resize after parsing output, never reentrantly from an OSC callback.
 		state.fitTerminal(session)
 		state.followTerminalDirectory(session)
+		if session.ID == state.activeSessionID && state.activeSection == sectionTerminal && state.monitorShown(state.deck.ActiveWorkspace()) {
+			state.ensureMonitor(session)
+		} else if session.stats != nil && session.stats.panel.worker != nil {
+			session.stats.panel.worker.Close()
+			session.stats.panel.worker = nil
+		}
 		if session.term != nil {
 			session.term.find.refreshIfChanged(session.term.screen, state.messages, findNow)
 		}

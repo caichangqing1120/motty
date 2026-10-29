@@ -545,22 +545,30 @@ type State struct {
 	loginOn       bool
 	closeAction   closeAction
 	// The file panel's settings and the folders kept for each host.
-	sftpParallel       int
-	sftpKeepTimesOff   bool
-	sftpFollowOff      bool
-	sftpTerminalFollow bool
-	sftpPathInput      bool
-	sftpPanelAutoOpen  bool
-	sftpPanelSide      layoutcore.ContextSide
-	sftpBookmarks      []sftpBookmark
-	sftpLocalBookmarks []string
-	transferLeftover   []byte
-	secrets            secretsUI
-	shareConnections   shareConnectionsPolicy
-	tooltip            components.HoverTooltip
-	selectTypeahead    selectTypeahead
-	restorePending     bool // restored tabs have not yet been connected (see connectRestoredSessions)
-	terminalClipboard  terminalClipboardPolicy
+	sftpParallel           int
+	sftpKeepTimesOff       bool
+	sftpFollowOff          bool
+	sftpTerminalFollow     bool
+	sftpPathInput          bool
+	sftpPanelAutoOpen      bool
+	monitorRect            ui.Rect
+	monitorMenu            bool
+	monitorMenuRect        ui.Rect
+	monitorResizing        bool
+	monitorResizeGrab      float32
+	monitorResizeWorkspace layoutcore.WorkspaceID
+	monitorResizeSession   uint32
+	monitorMenuSession     uint32
+	sftpPanelSide          layoutcore.ContextSide
+	sftpBookmarks          []sftpBookmark
+	sftpLocalBookmarks     []string
+	transferLeftover       []byte
+	secrets                secretsUI
+	shareConnections       shareConnectionsPolicy
+	tooltip                components.HoverTooltip
+	selectTypeahead        selectTypeahead
+	restorePending         bool // restored tabs have not yet been connected (see connectRestoredSessions)
+	terminalClipboard      terminalClipboardPolicy
 
 	localDirectoryDirty bool
 	// terminalCursorSteady keeps the terminal cursor from blinking.
@@ -1218,6 +1226,9 @@ func (state *State) Click(id ui.ID) {
 	if state.clickRemoteStats(id) {
 		return
 	}
+	if state.clickMonitor(id) {
+		return
+	}
 	if state.clickDesktop(id) {
 		return
 	}
@@ -1732,6 +1743,9 @@ func (state *State) Pointer(event ui.PointerEvent) (outcome ui.EventResult) {
 	if result, handled := state.contextDividerPointer(event); handled {
 		return result
 	}
+	if result, handled := state.monitorPointer(event); handled {
+		return result
+	}
 	if result, handled := state.paneDividerPointer(event); handled {
 		return result
 	}
@@ -1908,6 +1922,9 @@ func (state *State) key(event ui.KeyEvent) ui.EventResult {
 		return result
 	}
 	if result := state.remoteSearchKey(event); result.Handled {
+		return result
+	}
+	if result, handled := state.monitorKey(event); handled {
 		return result
 	}
 	if result, handled := state.hostGroupPickerKey(event); handled {
