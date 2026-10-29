@@ -206,7 +206,7 @@ func (state *State) sftpNavigationReady(view *sftpView, local bool) bool {
 	if view == nil || view.dialog != sftpDialogNone || view.editPath != "" {
 		return false
 	}
-	if w := view.detached; w != nil && (w.closed || w.closeConfirm || w.externalConflict != 0 || local && w.pendingLocal != "" || !local && !w.connected()) {
+	if w := view.detached; w != nil && (w.closed || w.closeConfirm || w.bookmark.open || w.browse.pending != nil || w.externalConflict != 0 || local && w.pendingLocal != "" || !local && !w.connected()) {
 		return false
 	}
 	if local {
@@ -256,6 +256,8 @@ func (state *State) navigateSFTPFolder(view *sftpView, local bool, directory str
 	if w := view.detached; w != nil {
 		w.cancelDrag()
 		w.activeLocal, view.local = local, local
+		w.startBrowseNavigationHistory(local, directory, kind, index)
+		return
 	}
 	if local {
 		_ = state.listLocalNavigation(view, directory, kind, index)

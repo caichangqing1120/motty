@@ -1142,6 +1142,9 @@ func (state *State) pumpSFTP(session *Session) {
 			if result.Operation == sftpclient.OperationList && !result.Background && !result.FollowUp && result.ListID != 0 && result.ListID != view.navigation.id {
 				if result.Path == view.abandonedPath {
 					view.abandonedPath = ""
+					if view.navigation.id == 0 {
+						view.busy = false
+					}
 				}
 				continue
 			}
