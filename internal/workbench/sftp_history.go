@@ -182,8 +182,11 @@ func (state *State) finishSFTPNavigation(view *sftpView, local bool, place sftpP
 	}
 	if w := view.detached; w != nil {
 		side := sideIndex(local)
+		// Same-path refresh keeps its precise offset; navigation restores a place.
+		if restore || w.shownPaths[side] != folder.path {
+			w.ui.offset[side] = float32(folder.first) * sftpRowHeight
+		}
 		w.shownPaths[side] = folder.path
-		w.ui.offset[side] = float32(folder.first) * sftpRowHeight
 	}
 }
 

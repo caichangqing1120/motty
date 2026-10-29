@@ -338,6 +338,8 @@ func (state *State) clickSFTP(id ui.ID) {
 	case id == hitSFTPCancel && view.busy:
 		if view.operation == sftpclient.OperationList && !view.extracting {
 			state.cancelSFTPNavigation(view)
+			view.status = state.messages.SFTPCanceled
+			return
 		} else if view.extracting && view.cancelExtract != nil {
 			view.cancelExtract()
 		} else {
