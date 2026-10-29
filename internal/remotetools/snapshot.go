@@ -40,9 +40,8 @@ func ReadProcessSnapshot(ctx context.Context, runner Runner, key SortKey) (Proce
 		output, err = runner.RunCommand(ctx, snapshotCommand(true), maxSnapshotOutput)
 	}
 	if err != nil {
-		if diagnostic := strings.TrimSpace(string(output)); diagnostic != "" {
-			line, _, _ := strings.Cut(diagnostic, "\n")
-			return ProcessSnapshot{}, &Failure{Message: line, Err: err}
+		if diagnostic := snapshotDiagnostic(output); diagnostic != "" {
+			return ProcessSnapshot{}, &Failure{Message: diagnostic, Err: err}
 		}
 		return ProcessSnapshot{}, err
 	}
@@ -99,4 +98,48 @@ func ReadProcessSnapshot(ctx context.Context, runner Runner, key SortKey) (Proce
 		result.Processes = result.Processes[:maxSnapshotProcesses]
 	}
 	return result, nil
+}
+
+// snapshotDiagnostic is the server's own complaint from a failed snapshot.
+// Output that holds process rows is data from a read that was cut short, not a
+// diagnostic: reporting its first row as the failure would hide the real error,
+// so such output falls through to err.
+func snapshotDiagnostic(output []byte) string {
+	first := ""
+	for _, line := range strings.Split(string(output), "\n") {
+		line = strings.TrimSpace(strings.TrimRight(line, "\r"))
+		if line == "" {
+			continue
+		}
+		if first == "" {
+			first = line
+		}
+		if looksLikeProcessRow(line) {
+			return ""
+		}
+	}
+	return first
+}
+
+// looksLikeProcessRow recognizes both snapshot row formats, so a partial read is
+// never mistaken for the server's explanation of why it failed.
+func looksLikeProcessRow(line string) bool {
+	if strings.HasPrefix(line, "USER ") {
+		return true
+	}
+	if _, ok := parseProcessWithLimit(line, maxSnapshotCommand); ok {
+		return true
+	}
+	fields := strings.Fields(line)
+	if len(fields) < 11 {
+		return false
+	}
+	if pid, err := strconv.Atoi(fields[1]); err != nil || pid <= 0 {
+		return false
+	}
+	if _, err := strconv.ParseFloat(fields[2], 64); err != nil {
+		return false
+	}
+	_, err := strconv.ParseFloat(fields[3], 64)
+	return err == nil
 }

@@ -66,3 +66,17 @@ func TestProcessSnapshotLongCommandsAndErrorsRemainBounded(t *testing.T) {
 		t.Fatalf("snapshot discarded the server's diagnostic: %v", err)
 	}
 }
+
+func TestProcessSnapshotDoesNotReportAPartialRowAsTheFailure(t *testing.T) {
+	runner := &fixedRunner{output: "99 root 0.1 0.2 00:00 service-1\n", err: fmt.Errorf("connection lost")}
+	_, err := ReadProcessSnapshot(context.Background(), runner, SortCPU)
+	if err == nil {
+		t.Fatal("a failed read became a successful snapshot")
+	}
+	if strings.Contains(err.Error(), "service-1") {
+		t.Fatalf("a partial process row became the error: %v", err)
+	}
+	if !strings.Contains(err.Error(), "connection lost") {
+		t.Fatalf("the snapshot swallowed the transport error: %v", err)
+	}
+}
