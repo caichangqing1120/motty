@@ -372,6 +372,7 @@ const (
 	modalUpdate
 	modalUpdateProgress
 	modalToolbarSettings
+	modalTerminalInput
 )
 
 // tone colors a session's headline.
@@ -582,6 +583,9 @@ func (state *State) Wake() {
 		state.pumpRemoteStats(session)
 		state.pumpDesktop(session)
 		state.pump(session)
+		// A session-local charset notice changes the available character grid.
+		// Resize after parsing output, never reentrantly from an OSC callback.
+		state.fitTerminal(session)
 		state.followTerminalDirectory(session)
 		if session.term != nil {
 			session.term.find.refreshIfChanged(session.term.screen, state.messages, findNow)
@@ -949,6 +953,9 @@ func (state *State) showNextPrompt() {
 }
 
 func (state *State) closeModal() {
+	if state.modal == modalTerminalInput {
+		state.inputConfirmation = terminalInputConfirmation{}
+	}
 	if state.modal == modalToolbarSettings {
 		state.toolbarEditor.list.Cancel()
 	}

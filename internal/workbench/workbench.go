@@ -393,12 +393,13 @@ type State struct {
 	// hostCatalog is the hosts, jump routes, keys, outbound proxy and timeouts a
 	// connection is resolved from; the headless MCP server builds one too.
 	hostCatalog
-	fileWindows   fileWindowManager
-	fileNotices   fileNotices
-	sftpWindows   map[uint32]*sftpWindow
-	remoteWindows []*remoteToolsWindow
-	remoteWindow  *remoteToolsWindow // set only on a native tool window's isolated presenter
-	closed        bool
+	fileWindows       fileWindowManager
+	fileNotices       fileNotices
+	inputConfirmation terminalInputConfirmation
+	sftpWindows       map[uint32]*sftpWindow
+	remoteWindows     []*remoteToolsWindow
+	remoteWindow      *remoteToolsWindow // set only on a native tool window's isolated presenter
+	closed            bool
 	// saveBlocked is set when the state file came from a newer build: nothing is
 	// ever written over it. stateNotice is the dialog that tells the user why a
 	// state file was not loaded as it was.
@@ -1093,6 +1094,9 @@ func (state *State) Click(id ui.ID) {
 	}
 	if state.knownHosts.action != knownHostsActionNone {
 		state.clickKnownHostsDialog(id)
+		return
+	}
+	if state.clickTerminalInput(id) {
 		return
 	}
 	switch state.modal {
@@ -1893,6 +1897,9 @@ func (state *State) Key(event ui.KeyEvent) (outcome ui.EventResult) {
 }
 
 func (state *State) key(event ui.KeyEvent) ui.EventResult {
+	if result, handled := state.terminalInputKey(event); handled {
+		return result
+	}
 	if result := state.remoteSearchKey(event); result.Handled {
 		return result
 	}

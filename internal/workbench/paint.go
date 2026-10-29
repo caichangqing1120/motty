@@ -213,6 +213,8 @@ func (state *State) Paint(canvas *ui.Canvas, size ui.Size) {
 	// menu state its keyboard handling needs.
 	state.devPaintOverlay(canvas)
 	switch state.modal {
+	case modalTerminalInput:
+		state.paintTerminalInputConfirm(canvas, viewport)
 	case modalNewHost:
 		state.paintHostDialog(canvas, viewport)
 	case modalDeleteHost:

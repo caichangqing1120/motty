@@ -3,6 +3,15 @@ package i18n
 // The Chinese catalog lives here, one file per language.
 
 var ChineseMessages = Messages{
+	TerminalInput: TerminalInputMessages{
+		Title: "检查命令字符", Description: "这个字符与命令符号相似。本次文字尚未发送，请明确选择；选择本身不会执行命令。",
+		Replace: "改用半角", Keep: "保留原文", Cancel: "取消本次输入", Canceled: "已取消本次待发送文字，之前输入的内容未修改。", Stale: "终端上下文已变化，待发送文字未发送。",
+		LocaleWarning: "当前 shell 不是 UTF-8，中文退格可能留下残缺字节。", LocaleUnavailable: "当前 shell 不是 UTF-8，且未找到已验证可用的 UTF-8 locale。",
+		LocaleFix: "启用 UTF-8", LocaleBusy: "仅在空闲且没有已输入命令的提示符可用，不会清空现有输入。", LocaleTitle: "修复当前会话的字符处理？",
+		LocaleBodyFmt: "仅在当前 shell 使用已验证的 %s。与 locale 有关的格式可能改变，不修改系统设置或启动文件。确认时命令行仍须为空。", LocaleConfirm: "修复当前会话",
+		LocaleRepairing: "正在等待 shell 确认 UTF-8…", LocaleSuccess: "当前 shell 已确认 UTF-8，中文编辑可按完整字符处理。", LocaleFailed: "shell 未确认 UTF-8，未继续尝试修改。",
+		SendFailed: "终端暂时无法接收本次输入，内容尚未发送。可以重试选择或取消。", LocaleDismiss: "本会话不再显示此提示", LocaleCanceled: "已取消会话修复，shell 环境未修改。",
+	},
 	SFTPWindow: SFTPWindowMessages{
 		LocalPlaces: "收藏与快捷位置", DirectoryFavorites: "目录收藏", CommonFolders: "常用目录", LocalDrives: "磁盘", FavoriteAdd: "收藏当前目录", FavoriteRemove: "取消收藏当前目录", FavoriteLimit: "目录收藏已达上限，请先移除不再使用的收藏。",
 		LocalHome: "主目录", LocalDesktop: "桌面", LocalDownloads: "下载", LocalDocuments: "文档", LocalPictures: "图片", LocalMusic: "音乐", LocalVideos: "视频", LocalMovies: "影片", LocalApplications: "应用程序",
