@@ -17,6 +17,9 @@ func (state *State) paintTerminalInputNotice(canvas *ui.Canvas, session *Session
 	if !ready {
 		label = m.LocaleBusy
 	}
+	if session.term.inputGuard.repairing {
+		label = m.LocaleRepairing
+	}
 	if session.term.inputGuard.environment.Locale == "" {
 		label = m.LocaleUnavailable
 	}

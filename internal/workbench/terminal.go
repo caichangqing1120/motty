@@ -347,10 +347,16 @@ func (t *terminal) writeRemote(p []byte, now time.Duration) {
 
 // send writes input to the shell. Typing returns the view to the live screen.
 func (t *terminal) send(p []byte) bool {
+	return t.sendInput(p, true)
+}
+
+// A confirmed input snapshot has already drained and validated its owner.
+// Consuming another transition after that check would invalidate the decision.
+func (t *terminal) sendInput(p []byte, drain bool) bool {
 	if t.shell == nil || len(p) == 0 {
 		return false
 	}
-	if t.takeOutput != nil {
+	if drain && t.takeOutput != nil {
 		t.takeOutput()
 		if t.shell == nil {
 			return false
@@ -363,7 +369,7 @@ func (t *terminal) send(p []byte) bool {
 	t.screen.ScrollToBottom()
 	t.autofill.Typed(p)
 	if t.historyOn != nil && t.historyOn() {
-		if t.takeOutput != nil && bytes.ContainsAny(p, "\r\n") {
+		if drain && t.takeOutput != nil && bytes.ContainsAny(p, "\r\n") {
 			t.takeOutput()
 		}
 		if command, ok := t.recorder.Typed(p, cmdhistory.TermScreen{Term: t.screen}, t.recordingNow()); ok && t.onCommand != nil {

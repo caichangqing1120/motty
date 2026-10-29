@@ -113,3 +113,23 @@ func TestInputEnvironmentProbePreservesErrexitWhenLocaleFails(t *testing.T) {
 		t.Fatalf("read-only probe changed errexit/liveness: %q %v", output, err)
 	}
 }
+
+func TestInputEnvironmentProbeReadsUnexportedShellLocale(t *testing.T) {
+	for _, name := range []string{"/bin/bash", "zsh"} {
+		t.Run(name, func(t *testing.T) {
+			program, err := exec.LookPath(name)
+			if err != nil {
+				t.Skipf("shell unavailable: %v", err)
+			}
+			script := "unset LC_ALL LC_CTYPE\nLC_ALL=C\n" + strings.ReplaceAll(inputEnvironmentFunction, "__MOTTY_INPUT_TOKEN__", "input-test") +
+				"\n__motty_input_report\ntext='中文'\nprintf '__COUNT__%s\\n' \"${#text}\"\nprintf '__VALUE__%s\\n' \"$LC_ALL\"\n"
+			command := exec.Command(program, "-c", script)
+			home := t.TempDir()
+			command.Env = []string{"PATH=" + os.Getenv("PATH"), "LANG=C.UTF-8", "HOME=" + home, "ZDOTDIR=" + home}
+			output, err := command.CombinedOutput()
+			if err != nil || !strings.Contains(string(output), ";input-test;other;") || !strings.Contains(string(output), "__COUNT__6") || !strings.Contains(string(output), "__VALUE__C") {
+				t.Fatalf("unexported actual shell locale was ignored or changed: %q %v", output, err)
+			}
+		})
+	}
+}

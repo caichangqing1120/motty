@@ -11,7 +11,7 @@ const inputEnvironmentFunction = `__motty_input_report() {
         _motty_input_charset=unknown
         _motty_input_locale=
         if command -v locale >/dev/null 2>&1; then
-            _motty_input_map=$(locale charmap 2>/dev/null) || _motty_input_map=
+            _motty_input_map=$(LC_ALL="${LC_ALL-}" LC_CTYPE="${LC_CTYPE-}" LANG="${LANG-}" command locale charmap 2>/dev/null) || _motty_input_map=
             case $_motty_input_map in
                 UTF-8|UTF8|utf-8|utf8) _motty_input_charset=utf8 ;;
                 '') ;;
@@ -19,14 +19,14 @@ const inputEnvironmentFunction = `__motty_input_report() {
             esac
             if [[ $_motty_input_charset != utf8 ]]; then
                 _motty_input_count=0
-                for _motty_input_try in C.UTF-8 C.utf8 en_US.UTF-8 en_US.utf8 $(locale -a 2>/dev/null); do
+                for _motty_input_try in C.UTF-8 C.utf8 en_US.UTF-8 en_US.utf8 $(command locale -a 2>/dev/null); do
                     (( ++_motty_input_count ))
                     (( _motty_input_count <= 64 )) || break
                     case $_motty_input_try in
                         ''|*[!a-zA-Z0-9_.@-]*) continue ;;
                     esac
                     (( ${#_motty_input_try} <= 128 )) || continue
-                    _motty_input_map=$(LC_ALL="$_motty_input_try" locale charmap 2>/dev/null) || continue
+                    _motty_input_map=$(LC_ALL="$_motty_input_try" command locale charmap 2>/dev/null) || continue
                     case $_motty_input_map in
                         UTF-8|UTF8|utf-8|utf8) _motty_input_locale=$_motty_input_try; break ;;
                     esac

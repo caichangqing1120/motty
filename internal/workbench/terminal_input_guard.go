@@ -1,6 +1,7 @@
 package workbench
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
 	"unicode/utf8"
@@ -58,6 +59,9 @@ func (g *terminalInputGuard) observe(input []byte) {
 	if !g.active {
 		return
 	}
+	if len(input) >= 12 && bytes.HasPrefix(input, []byte("\x1b[200~")) && bytes.HasSuffix(input, []byte("\x1b[201~")) {
+		input = input[6 : len(input)-6]
+	}
 	if strings.ContainsAny(string(input), "\r\n\x03\x04") {
 		g.start()
 		return
@@ -78,16 +82,55 @@ func (g *terminalInputGuard) observe(input []byte) {
 				return
 			}
 			g.prefix = g.prefix[:len(g.prefix)-size]
-			g.smartQuote = 0
+			g.retainSmartQuote()
 		case r < 0x20:
 			g.known, g.prefix = false, ""
 			return
 		default:
-			if r == '\'' || r == '"' {
-				g.smartQuote = 0
-			}
 			g.prefix += string(r)
+			if r == '\'' || r == '"' {
+				g.retainSmartQuote()
+			}
 		}
+	}
+}
+
+func (g *terminalInputGuard) retainSmartQuote() {
+	if g.smartQuote == 0 {
+		return
+	}
+	expected := '"'
+	if g.smartQuote == '\u2019' {
+		expected = '\''
+	}
+	prefix := shellInputPrefix{}
+	for _, r := range g.prefix {
+		prefix.advance(r)
+	}
+	if prefix.quote != expected {
+		g.smartQuote = 0
+	}
+}
+
+type shellInputPrefix struct {
+	quote            rune
+	escaped, comment bool
+}
+
+func (p *shellInputPrefix) advance(r rune) {
+	if p.comment {
+		return
+	}
+	if p.escaped {
+		p.escaped = false
+	} else if r == '\\' && p.quote != '\'' {
+		p.escaped = true
+	} else if r == p.quote {
+		p.quote = 0
+	} else if p.quote == 0 && (r == '\'' || r == '"') {
+		p.quote = r
+	} else if p.quote == 0 && r == '#' {
+		p.comment = true
 	}
 }
 
@@ -95,32 +138,18 @@ func (g *terminalInputGuard) observe(input []byte) {
 // not a shell parser: uncertain grammar and quoted literals remain untouched.
 func commandGlyphFix(prefix, value string, smart rune) (fixed, detail string, nextSmart rune) {
 	unsafeControl := strings.IndexFunc(value, func(r rune) bool { return r < 0x20 || r == 0x7f }) >= 0
-	if unsafeControl || len(prefix)+len(value) > maxInputGuardBytes || strings.ContainsAny(prefix+value, "\r\n`") || strings.Contains(prefix+value, "$(") || strings.Contains(prefix+value, "<<") {
+	if unsafeControl || len(prefix)+len(value) > maxInputGuardBytes || strings.ContainsAny(prefix+value, "\r\n`({") || strings.Contains(prefix+value, "$[") || strings.Contains(prefix+value, "<<") {
 		return value, "", smart
 	}
-	var quote rune
-	escaped, comment := false, false
-	advance := func(r rune) {
-		if escaped {
-			escaped = false
-		} else if r == '\\' && quote != '\'' {
-			escaped = true
-		} else if r == quote {
-			quote = 0
-		} else if quote == 0 && (r == '\'' || r == '"') {
-			quote = r
-		} else if quote == 0 && r == '#' {
-			comment = true
-		}
-	}
+	context := shellInputPrefix{}
 	for _, r := range prefix {
-		advance(r)
+		context.advance(r)
 	}
 	nextSmart = smart
 	var out strings.Builder
 	for _, r := range value {
 		replacement := r
-		if !escaped && !comment && (quote == 0 || r == nextSmart) {
+		if !context.escaped && !context.comment && (context.quote == 0 || r == nextSmart) {
 			switch r {
 			case '\u3000', '\u00a0':
 				replacement = ' '
@@ -137,7 +166,7 @@ func commandGlyphFix(prefix, value string, smart rune) (fixed, detail string, ne
 				detail = fmt.Sprintf("%q (U+%04X) -> %q (U+%04X)", r, r, replacement, replacement)
 			}
 			if replacement == '\'' || replacement == '"' {
-				if quote == 0 {
+				if context.quote == 0 {
 					if replacement == '\'' {
 						nextSmart = '\u2019'
 					} else {
@@ -149,20 +178,26 @@ func commandGlyphFix(prefix, value string, smart rune) (fixed, detail string, ne
 			}
 		}
 		out.WriteRune(replacement)
-		advance(replacement)
+		context.advance(replacement)
 	}
 	return out.String(), detail, nextSmart
 }
 
 func (state *State) inputGuardAvailable(session *Session) bool {
 	t := session.term
-	return state.activeSection == sectionTerminal && state.activeSessionID == session.ID && state.broadcast == 0 && !state.transfers.open && state.knownHosts.action == knownHostsActionNone &&
+	return state.modal == modalNone && state.activeSection == sectionTerminal && state.activeSessionID == session.ID && state.broadcast == 0 && !state.transfers.open && state.knownHosts.action == knownHostsActionNone &&
 		t != nil && t.shell != nil && !t.ended && t.exec == nil && t.inputGuard.active && t.inputGuard.environment.Charset != "" && t.commandReporting && t.folderToken != "" &&
 		session.desk == nil && session.containerCommand == "" && !t.screen.Modes().AltScreen && t.screen.KeyboardFlags() == 0 && !t.screen.Modes().Win32Input &&
 		!(state.transfer.phase != transferNone && state.transfer.sessionID == session.ID)
 }
 
 func (state *State) guardTerminalText(session *Session, event app.TextEvent) bool {
+	current := state.inputOwnerAfterDrain(session.ID, session.term)
+	if current == nil {
+		state.status = state.messages.TerminalInput.Stale
+		return true
+	}
+	session = current
 	if state.modal != modalNone || !state.inputGuardAvailable(session) || !session.term.inputGuard.known ||
 		(event.Kind != app.TextInsert && event.Kind != app.TextPaste) {
 		return false
@@ -184,6 +219,22 @@ func (state *State) inputAsk(session *Session) terminalInputConfirmation {
 	return terminalInputConfirmation{sessionID: session.ID, owner: t, token: t.folderToken, epoch: t.inputGuard.epoch, version: t.promptVersion}
 }
 
+func (state *State) inputOwnerAfterDrain(id uint32, owner *terminal) *Session {
+	session, ok := state.sessionByIDPointer(id)
+	if !ok || owner == nil || session.term != owner {
+		return nil
+	}
+	if owner.takeOutput != nil {
+		owner.takeOutput()
+	}
+	session, ok = state.sessionByIDPointer(id)
+	if !ok || session.term != owner {
+		return nil
+	}
+	state.fitTerminal(session)
+	return session
+}
+
 func (state *State) inputLocaleRepairReady(session *Session) bool {
 	return state.inputGuardAvailable(session) && session.term.promptReady && !session.term.promptDirty &&
 		session.term.inputGuard.environment.Charset == "other" && session.term.inputGuard.environment.Locale != ""
@@ -201,6 +252,10 @@ func (state *State) clickTerminalInput(id ui.ID) bool {
 		if id == hitInputLocaleDismiss {
 			session.term.inputGuard.dismissed = true
 			state.fitTerminal(session)
+			return true
+		}
+		session = state.inputOwnerAfterDrain(session.ID, session.term)
+		if session == nil {
 			return true
 		}
 		if state.inputLocaleRepairReady(session) {
@@ -222,8 +277,8 @@ func (state *State) clickTerminalInput(id ui.ID) bool {
 		}
 		return true
 	}
-	session, ok := state.sessionByIDPointer(ask.sessionID)
-	if !ok || session.term != ask.owner || !state.inputGuardAvailable(session) || session.term.folderToken != ask.token ||
+	session := state.inputOwnerAfterDrain(ask.sessionID, ask.owner)
+	if session == nil || !state.inputGuardAvailable(session) || session.term.folderToken != ask.token ||
 		session.term.inputGuard.epoch != ask.epoch || session.term.promptVersion != ask.version {
 		state.status = state.messages.TerminalInput.Stale
 		return true
@@ -246,7 +301,7 @@ func (state *State) clickTerminalInput(id ui.ID) bool {
 	if ask.event.Kind == app.TextPaste {
 		input = term.EncodePaste(value, t.screen.Modes().BracketedPaste)
 	}
-	if !state.typed(session, input) {
+	if !t.sendInput(input, false) {
 		state.retryInputChoice(ask)
 	} else if id == hitInputReplace {
 		t.inputGuard.smartQuote = ask.smartQuote
