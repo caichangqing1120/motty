@@ -169,3 +169,84 @@ func TestLocalScopeWindowWarningAddsNoSteadyPaintAllocations(t *testing.T) {
 		t.Logf("window allocations complete=%g incomplete=%g", baseline, covered)
 	}
 }
+
+func hiddenPartialScope(t *testing.T) localListing {
+	t.Helper()
+	dir := t.TempDir()
+	for _, name := range []string{".hidden", "lost"} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	markLocalHidden(t, filepath.Join(dir, ".hidden"))
+	items := scopeDirEntries(t, dir)
+	if err := os.Remove(filepath.Join(dir, "lost")); err != nil {
+		t.Fatal(err)
+	}
+	return scanLocalListing(dir, items)
+}
+
+func assertHiddenScopeEmpty(t *testing.T, preview *headless.Session) {
+	t.Helper()
+	dualText(t, preview, "No visible loaded items")
+	for _, text := range preview.Snapshot().Texts {
+		if text.Value == "No readable items loaded" {
+			t.Fatal("readable but hidden row was described as unreadable")
+		}
+	}
+	for _, hit := range preview.Snapshot().Hits {
+		if hit.Role == ui.RoleStatus && hit.Label == hit.Hint && strings.Contains(hit.Hint, "1 items loaded") && strings.Contains(hit.Hint, "1 unreadable") {
+			return
+		}
+	}
+	t.Fatal("hidden-only loaded scope lost its full semantic count/cause")
+}
+
+func TestLocalScopeReviewNativeHiddenLoadedItemsRemainReadable(t *testing.T) {
+	t.Run("sidebar", func(t *testing.T) {
+		state, session, _, _ := openTestSFTP(t)
+		partial := hiddenPartialScope(t)
+		view := openLocalPane(t, state, session, partial.dir)
+		state.applyLocalListing(view, partial, view.localSeq)
+		preview, err := headless.Open(app.Config{
+			Title: "Hidden loaded scope", Width: 1000, Height: 520, Tree: Tree(),
+			Paint: state.Paint, OnPointer: state.Pointer, OnKey: state.Key, OnShortcut: state.Shortcut,
+		}, nil, headless.Options{Scale: 1})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer preview.Close()
+		assertHiddenScopeEmpty(t, preview)
+		dualClickID(t, preview, contextID(hitSFTPHeaderMore))
+		dualClickID(t, preview, contextID(hitSFTPHeaderHidden))
+		if len(view.lfolder.rows) != 1 || view.lfolder.rows[0].entry.Name != ".hidden" {
+			t.Fatal("show hidden did not restore the readable loaded row")
+		}
+		dualText(t, preview, ".hidden")
+		for _, text := range preview.Snapshot().Texts {
+			if text.Value == "No visible loaded items" {
+				t.Fatal("sidebar kept its empty message after revealing a loaded row")
+			}
+		}
+	})
+	t.Run("window", func(t *testing.T) {
+		state, w, _, host, _ := dualSFTPFixture(t, 1)
+		preview := host.windows[0].view
+		state.applyLocalListing(w.view, hiddenPartialScope(t), w.view.localSeq)
+		if err := preview.Driver().Pump(); err != nil {
+			t.Fatal(err)
+		}
+		assertHiddenScopeEmpty(t, preview)
+		dualClickID(t, preview, sftpWindowMore[0])
+		dualClickID(t, preview, sftpWindowHeaderHidden[0])
+		if len(w.view.lfolder.rows) != 1 || w.view.lfolder.rows[0].entry.Name != ".hidden" {
+			t.Fatal("window show hidden did not restore the readable loaded row")
+		}
+		dualText(t, preview, ".hidden")
+		for _, text := range preview.Snapshot().Texts {
+			if text.Value == "No visible loaded items" {
+				t.Fatal("window kept its empty message after revealing a loaded row")
+			}
+		}
+	})
+}

@@ -104,6 +104,7 @@ type sftpView struct {
 	// listingStatus is the listing message status still holds, so a completed
 	// listing can retire it without dropping the feedback that replaced it.
 	listingStatus         string
+	localListingStatus    bool // the shared listing message belongs to a pending local read
 	errorText             string
 	refreshStatus         string
 	dialog                sftpDialogKind
@@ -407,6 +408,7 @@ func (view *sftpView) active() *sftpFolder {
 // that replaces it can tell its own message from feedback written meanwhile.
 func (view *sftpView) startListingStatus(message string) {
 	view.status, view.listingStatus = message, message
+	view.localListingStatus = false
 }
 
 // setItemCountStatus reports a folder's count in the embedded panel's status

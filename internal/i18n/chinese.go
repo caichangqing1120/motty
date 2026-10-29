@@ -1290,6 +1290,7 @@ var chineseTools = ToolsMessages{
 	FilesLoadedSkippedFmt:           "已跳过 %d 个无法读取的项目。",
 	FilesLoadedReadErrorFmt:         "目录读取中断：%s",
 	FilesLoadedEmpty:                "未加载到可读取的项目",
+	FilesLoadedNoneVisible:          "没有可见的已加载项目",
 	FilesLoadedNoMatches:            "已加载项目中无匹配结果",
 	FilesMore:                       "更多文件操作",
 	FilesShowHidden:                 "显示隐藏文件",

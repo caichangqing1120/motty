@@ -291,6 +291,9 @@ func (state *State) refreshLocalCoverage(folder *sftpFolder) {
 		folder.coverageText += " " + fmt.Sprintf(m.FilesLoadedReadErrorFmt, coverage.readError)
 	}
 	folder.coverageEmpty = m.FilesLoadedEmpty
+	if len(folder.allRows) > 0 && len(folder.rows) == 0 {
+		folder.coverageEmpty = m.FilesLoadedNoneVisible
+	}
 	if folder.filterInputEditor().String() != "" {
 		folder.coverageEmpty = m.FilesLoadedNoMatches
 	}

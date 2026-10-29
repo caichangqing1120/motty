@@ -103,6 +103,7 @@ func (state *State) listLocal(view *sftpView, dir string) error {
 	// Even a failed newer request retires older background/deferred answers.
 	view.localSeq++
 	seq := view.localSeq
+	state.retireLocalListingStatus(view)
 	folder := &view.lfolder
 	dir = filepath.Clean(dir)
 	file, err := os.Open(dir)
@@ -137,6 +138,7 @@ func (state *State) listLocal(view *sftpView, dir string) error {
 	}
 	view.errorText = ""
 	view.startListingStatus(state.messages.SFTPLoading)
+	view.localListingStatus = true
 	go func() {
 		defer file.Close()
 		listing := readLocalListing(dir, file, first, readErr)
@@ -148,6 +150,19 @@ func (state *State) listLocal(view *sftpView, dir string) error {
 		})
 	}()
 	return nil
+}
+
+// A superseded local read has no reply left to retire its loading message.
+// Remote listings share the same wording but retain their own ownership.
+func (state *State) retireLocalListingStatus(view *sftpView) {
+	if !view.localListingStatus {
+		return
+	}
+	if view.listingStatus != "" && view.status == view.listingStatus {
+		state.refreshSFTPFilterStatus(view, view.active())
+	}
+	view.listingStatus = ""
+	view.localListingStatus = false
 }
 
 // localListing is a local folder scanned away from the window thread.
@@ -263,6 +278,7 @@ func (state *State) applyLocalListing(view *sftpView, listing localListing, seq 
 	folder.localCoverage = listing.coverage
 	folder.crumbs = prepareLocalCrumbs(folder.crumbs, listing.dir)
 	state.applySFTPFilter(view, folder, true)
+	state.retireLocalListingStatus(view)
 	view.errorText = ""
 	if view.detached != nil {
 		view.setItemCountStatus(state.messages.SFTPItemsFmt, len(folder.rows))

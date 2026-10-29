@@ -1290,6 +1290,7 @@ var englishTools = ToolsMessages{
 	FilesLoadedSkippedFmt:           "%d unreadable entries skipped.",
 	FilesLoadedReadErrorFmt:         "Directory read stopped: %s",
 	FilesLoadedEmpty:                "No readable items loaded",
+	FilesLoadedNoneVisible:          "No visible loaded items",
 	FilesLoadedNoMatches:            "No matches in loaded items",
 	FilesMore:                       "More file actions",
 	FilesShowHidden:                 "Show hidden files",

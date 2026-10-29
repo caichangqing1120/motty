@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/vivaui/viva/app"
+	"github.com/vivaui/viva/text"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -277,5 +278,55 @@ func TestLocalScopeAllStatFailuresDoNotClaimAnEmptyFolder(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("zero loaded rows have no bounded empty message")
+	}
+}
+
+func TestLocalScopeReviewFailedPathRetiresOnlyItsLocalLoading(t *testing.T) {
+	for _, failure := range []string{"open", "initial-read"} {
+		for _, feedback := range []string{"none", "operation", "remote-listing"} {
+			t.Run(failure+"/"+feedback, func(t *testing.T) {
+				state, session, _, _ := openTestSFTP(t)
+				dir := localFixture(t)
+				view := openLocalPane(t, state, session, dir)
+				big := localManyFiles(t, localListingInlineEntries+1)
+				if err := state.listLocal(view, big); err != nil {
+					t.Fatal(err)
+				}
+				if view.status != state.messages.SFTPLoading {
+					t.Fatal("fixture did not start an asynchronous local listing")
+				}
+				seq := view.localSeq
+				want := fmt.Sprintf(state.messages.SFTPItemsFmt, 3)
+				if feedback == "operation" {
+					view.status = "Upload completed"
+					want = view.status
+				} else if feedback == "remote-listing" {
+					// Remote enumeration uses this same status helper and message.
+					view.startListingStatus(state.messages.SFTPLoading)
+					want = state.messages.SFTPLoading
+				}
+				destination := filepath.Join(dir, "missing")
+				if failure == "initial-read" {
+					destination = filepath.Join(dir, "report.txt")
+				}
+				*view.lfolder.pathInput() = *text.NewEditor(destination)
+				state.submitSFTPPath(view)
+				state.applyLocalListing(view, scanLocalListing(big, scopeDirEntries(t, big)), seq)
+				state.Wake()
+				if view.lfolder.path != dir || len(view.lfolder.rows) != 3 || view.errorText != "" || len(state.fileNotices.items) != 1 {
+					t.Fatalf("failed submit changed the folder or lost its toast: path=%q rows=%d error=%q notices=%d", view.lfolder.path, len(view.lfolder.rows), view.errorText, len(state.fileNotices.items))
+				}
+				if view.status != want {
+					t.Fatalf("failed local request status=%q, want %q", view.status, want)
+				}
+				wantListing := ""
+				if feedback == "remote-listing" {
+					wantListing = state.messages.SFTPLoading
+				}
+				if view.listingStatus != wantListing {
+					t.Fatalf("listing message ownership=%q, want %q", view.listingStatus, wantListing)
+				}
+			})
+		}
 	}
 }

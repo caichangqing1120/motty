@@ -249,6 +249,7 @@ type ToolsMessages struct {
 	FilesLoadedSkippedFmt           string
 	FilesLoadedReadErrorFmt         string
 	FilesLoadedEmpty                string
+	FilesLoadedNoneVisible          string
 	FilesLoadedNoMatches            string
 	FilesMore                       string
 	FilesShowHidden                 string
