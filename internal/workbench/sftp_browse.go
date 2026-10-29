@@ -196,6 +196,16 @@ func (w *sftpWindow) browseListingFailed(local bool, directory string, err error
 	return true
 }
 
+func (w *sftpWindow) cancelBrowseNavigation(local bool, directory string) {
+	request := w.browse.pending
+	if request == nil || request.side != sideIndex(local) || request.paths[request.side] != directory {
+		return
+	}
+	// The retired listing cannot finish the pair; its two locations no longer
+	// confirm synchronization, even when opening a profile with sync disabled.
+	w.browse.pending, w.browse.enabled = nil, false
+}
+
 func (w *sftpWindow) openPairedBookmark(bookmark sftpBookmark) {
 	if w.navigationBusy() || !w.connected() {
 		return

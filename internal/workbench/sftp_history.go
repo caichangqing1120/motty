@@ -271,6 +271,9 @@ func (state *State) navigateLocalDirectory(view *sftpView, directory string) err
 }
 
 func (state *State) cancelSFTPNavigation(view *sftpView) {
+	if view.detached != nil {
+		view.detached.cancelBrowseNavigation(false, view.navigation.path)
+	}
 	view.navigation = sftpNavigation{}
 	view.remoteSeq++
 	view.preparingPath, view.followUpPath, view.followUpEntries = "", "", nil
@@ -286,6 +289,9 @@ func (state *State) cancelSFTPNavigation(view *sftpView) {
 }
 
 func (state *State) cancelSFTPLocalNavigation(view *sftpView) {
+	if view.detached != nil {
+		view.detached.cancelBrowseNavigation(true, view.lfolder.navigation.path)
+	}
 	view.localSeq++
 	view.lfolder.navigation = sftpNavigation{}
 	if view.detached != nil {
