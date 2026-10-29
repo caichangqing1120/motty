@@ -75,6 +75,10 @@ type sftpFolder struct {
 	headerMenuOpen bool
 	sortOrder      sftpWindowSort
 	sortChosen     bool
+	localCoverage  localListingCoverage
+	coverageLabel  string // bounded scope, formatted when a listing/filter changes
+	coverageText   string // full semantic warning, independent of ordinary feedback
+	coverageEmpty  string
 }
 
 type sftpView struct {

@@ -100,6 +100,9 @@ func (state *State) toggleSFTPPane(view *sftpView) {
 // on the window thread when it arrives. localSeq drops an answer that a newer
 // listing has overtaken.
 func (state *State) listLocal(view *sftpView, dir string) error {
+	// Even a failed newer request retires older background/deferred answers.
+	view.localSeq++
+	seq := view.localSeq
 	folder := &view.lfolder
 	dir = filepath.Clean(dir)
 	file, err := os.Open(dir)
@@ -126,27 +129,17 @@ func (state *State) listLocal(view *sftpView, dir string) error {
 		}
 		return readErr
 	}
-	view.localSeq++
-	seq := view.localSeq
 	if len(first) <= localListingInlineEntries {
+		listing := readLocalListing(dir, file, first, readErr)
 		file.Close()
-		state.applyLocalListing(view, scanLocalListing(dir, first), seq)
+		state.applyLocalListing(view, listing, seq)
 		return nil
 	}
 	view.errorText = ""
 	view.startListingStatus(state.messages.SFTPLoading)
 	go func() {
 		defer file.Close()
-		items := first
-		for len(items) < maxLocalEntries {
-			want := min(4096, maxLocalEntries-len(items))
-			more, err := file.ReadDir(want)
-			items = append(items, more...)
-			if err != nil || len(more) == 0 {
-				break
-			}
-		}
-		listing := scanLocalListing(dir, items)
+		listing := readLocalListing(dir, file, first, readErr)
 		state.aiPost(func(*State) {
 			if seq != view.localSeq {
 				return
@@ -159,22 +152,50 @@ func (state *State) listLocal(view *sftpView, dir string) error {
 
 // localListing is a local folder scanned away from the window thread.
 type localListing struct {
-	dir     string
-	entries []sftpclient.Entry
-	rows    []sftpRow
+	dir      string
+	entries  []sftpclient.Entry
+	rows     []sftpRow
+	coverage localListingCoverage
 }
 
-// localListing scans, sorts and prepares one local folder. It touches no State
-// so a goroutine may run it while the window keeps painting.
-func scanLocalListing(dir string, items []os.DirEntry) localListing {
-	entries := make([]sftpclient.Entry, 0, min(len(items), maxLocalEntries))
-	hidden := make([]bool, 0, min(len(items), maxLocalEntries))
-	for _, item := range items {
-		if len(entries) == maxLocalEntries {
+type localListingCoverage struct {
+	truncated bool
+	skipped   int
+	readError string
+}
+
+func (coverage localListingCoverage) incomplete() bool {
+	return coverage.truncated || coverage.skipped > 0 || coverage.readError != ""
+}
+
+// One lookahead distinguishes a complete, exactly capped directory from one
+// with more entries. Only the first maxLocalEntries raw entries are statted.
+func readLocalListing(dir string, file *os.File, items []os.DirEntry, readErr error) localListing {
+	for len(items) > localListingInlineEntries && len(items) <= maxLocalEntries && readErr == nil {
+		more, err := file.ReadDir(min(4096, maxLocalEntries+1-len(items)))
+		items = append(items, more...)
+		readErr = err
+		if len(more) == 0 {
 			break
 		}
+	}
+	listing := scanLocalListing(dir, items)
+	if readErr != nil && !errors.Is(readErr, io.EOF) {
+		listing.coverage.readError = readErr.Error()
+	}
+	return listing
+}
+
+// scanLocalListing scans, sorts and prepares one local folder. It touches no State
+// so a goroutine may run it while the window keeps painting.
+func scanLocalListing(dir string, items []os.DirEntry) localListing {
+	coverage := localListingCoverage{truncated: len(items) > maxLocalEntries}
+	entries := make([]sftpclient.Entry, 0, min(len(items), maxLocalEntries))
+	hidden := make([]bool, 0, min(len(items), maxLocalEntries))
+	for _, item := range items[:min(len(items), maxLocalEntries)] {
 		info, err := item.Info()
 		if err != nil {
+			coverage.skipped++
 			continue
 		}
 		entry := sftpclient.Entry{Name: item.Name(), Size: info.Size(), Mode: info.Mode(), ModTime: info.ModTime()}
@@ -220,7 +241,7 @@ func scanLocalListing(dir string, items []os.DirEntry) localListing {
 	for index := range rows {
 		rows[index].hidden = sortedHidden[index]
 	}
-	return localListing{dir: dir, entries: sorted, rows: rows}
+	return localListing{dir: dir, entries: sorted, rows: rows, coverage: coverage}
 }
 
 // applyLocalListing puts a finished local listing on screen. seq must still be
@@ -239,6 +260,7 @@ func (state *State) applyLocalListing(view *sftpView, listing localListing, seq 
 	folder := &view.lfolder
 	folder.path = listing.dir
 	folder.allRows = listing.rows
+	folder.localCoverage = listing.coverage
 	folder.crumbs = prepareLocalCrumbs(folder.crumbs, listing.dir)
 	state.applySFTPFilter(view, folder, true)
 	view.errorText = ""

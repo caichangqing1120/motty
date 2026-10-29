@@ -243,6 +243,13 @@ type ToolsMessages struct {
 	FilesFilterPlaceholder          string
 	FilesFilterClear                string
 	FilesFilterCountFmt             string
+	FilesLoadedIncompleteFmt        string
+	FilesLoadedFilterOnly           string
+	FilesLoadedLimitFmt             string
+	FilesLoadedSkippedFmt           string
+	FilesLoadedReadErrorFmt         string
+	FilesLoadedEmpty                string
+	FilesLoadedNoMatches            string
 	FilesMore                       string
 	FilesShowHidden                 string
 	FilesHideHidden                 string

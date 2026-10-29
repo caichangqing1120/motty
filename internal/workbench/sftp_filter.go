@@ -22,6 +22,7 @@ var (
 	hitSFTPHeaderFilter      = tree.ID(sftpHits, "sftp-header-filter")
 	hitSFTPHeaderHidden      = tree.ID(sftpHits, "sftp-header-hidden")
 	hitSFTPHeaderMenuDismiss = tree.ID(sftpHits, "sftp-header-menu-dismiss")
+	hitSFTPCoverage          = tree.ID(sftpHits, "sftp-local-coverage")
 )
 
 const sftpFilterMaxRunes = 256
@@ -267,7 +268,42 @@ func (state *State) applySFTPFilter(view *sftpView, folder *sftpFolder, clearSel
 	if clearSelection {
 		folder.first = 0
 	}
+	state.refreshLocalCoverage(folder)
 	state.refreshSFTPFilterStatus(view, folder)
+}
+
+func (state *State) refreshLocalCoverage(folder *sftpFolder) {
+	folder.coverageLabel, folder.coverageText, folder.coverageEmpty = "", "", ""
+	coverage := folder.localCoverage
+	if !coverage.incomplete() {
+		return
+	}
+	m := state.messages.Tools
+	folder.coverageLabel = fmt.Sprintf(m.FilesLoadedIncompleteFmt, len(folder.allRows))
+	folder.coverageText = folder.coverageLabel + ". " + m.FilesLoadedFilterOnly
+	if coverage.truncated {
+		folder.coverageText += " " + fmt.Sprintf(m.FilesLoadedLimitFmt, maxLocalEntries)
+	}
+	if coverage.skipped > 0 {
+		folder.coverageText += " " + fmt.Sprintf(m.FilesLoadedSkippedFmt, coverage.skipped)
+	}
+	if coverage.readError != "" {
+		folder.coverageText += " " + fmt.Sprintf(m.FilesLoadedReadErrorFmt, coverage.readError)
+	}
+	folder.coverageEmpty = m.FilesLoadedEmpty
+	if folder.filterInputEditor().String() != "" {
+		folder.coverageEmpty = m.FilesLoadedNoMatches
+	}
+}
+
+func (state *State) declareLocalCoverage(f *flex.Frame, folder *sftpFolder, id ui.ID) {
+	if folder.coverageText == "" {
+		return
+	}
+	f.Column().Height(38).Shrink(0).HitWith(id, folder.coverageText, ui.HitOptions{Role: ui.RoleStatus, SkipFocus: true, Hint: folder.coverageText}).Children(func() {
+		f.Text(folder.coverageLabel).FontSize(metrics.FontSizeS).Color(state.pal.warning).Ellipsis().Height(18).Shrink(0)
+		f.Text(state.messages.Tools.FilesLoadedFilterOnly).FontSize(metrics.FontSizeS).Color(state.pal.muted).Ellipsis().Height(18).Shrink(0)
+	})
 }
 
 func sftpRowNameIndex(rows []sftpRow, name string) int {
