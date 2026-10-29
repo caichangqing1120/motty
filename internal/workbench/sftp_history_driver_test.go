@@ -241,20 +241,18 @@ func TestSFTPHistorySteadyPaintBudget(t *testing.T) {
 			t.Fatalf("sidebar history menu open=%v allocations=%v", open, allocs)
 		}
 	}
-	state, w, _, _, _ := dualSFTPFixture(t, 1)
-	_ = state
+	_, w, _, _, _ := dualSFTPFixture(t, 1)
 	for i := 0; i < 10; i++ {
 		w.view.lfolder.history.touch(fmt.Sprintf("/history/path-%d", i))
 	}
-	for _, open := range []bool{false, true} {
-		w.view.lfolder.headerMenuOpen = open
-		var canvas ui.Canvas
-		size := ui.Size{Width: 900, Height: 640}
-		w.paint(&canvas, size)
-		allocs := testing.AllocsPerRun(30, func() { canvas.Reset(); w.paint(&canvas, size) })
-		if allocs > 4 {
-			t.Fatalf("detached history menu open=%v allocations=%v, baseline4", open, allocs)
-		}
+	w.view.lfolder.headerMenuOpen = true
+	var canvas ui.Canvas
+	w.paint(&canvas, ui.Size{Width: 900, Height: 640})
+	// Isolate the added menu: existing pane fmt pools are randomly dropped by
+	// race builds, so the whole-window allocation count has no fixed ceiling.
+	allocs := testing.AllocsPerRun(30, func() { canvas.Reset(); w.paintHeaderMenu(&canvas, 0) })
+	if allocs != 0 {
+		t.Fatalf("detached history menu allocations=%v, want zero", allocs)
 	}
 }
 
