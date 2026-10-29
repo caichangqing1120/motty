@@ -40,6 +40,10 @@ func ReadProcessSnapshot(ctx context.Context, runner Runner, key SortKey) (Proce
 		output, err = runner.RunCommand(ctx, snapshotCommand(true), maxSnapshotOutput)
 	}
 	if err != nil {
+		if diagnostic := strings.TrimSpace(string(output)); diagnostic != "" {
+			line, _, _ := strings.Cut(diagnostic, "\n")
+			return ProcessSnapshot{}, &Failure{Message: line, Err: err}
+		}
 		return ProcessSnapshot{}, err
 	}
 	result := ProcessSnapshot{Truncated: strings.Count(strings.TrimSpace(string(output)), "\n")+1 >= snapshotReadRows}

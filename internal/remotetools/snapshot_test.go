@@ -62,4 +62,7 @@ func TestProcessSnapshotLongCommandsAndErrorsRemainBounded(t *testing.T) {
 	if err == nil {
 		t.Fatal("failed command became a successful snapshot")
 	}
+	if !strings.Contains(err.Error(), "permission denied") {
+		t.Fatalf("snapshot discarded the server's diagnostic: %v", err)
+	}
 }
