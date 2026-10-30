@@ -195,6 +195,8 @@ const (
 	OpSetFavorite
 	OpDelete
 	OpClear
+	// OpWait orders writes after a previous window's journal queue when a tab moves.
+	OpWait
 )
 
 // Operation is one queued write. Only the fields of its Kind are read.
@@ -208,6 +210,7 @@ type Operation struct {
 	Reason           Reason
 	Favorite         bool
 	IncludeFavorites bool
+	Wait             <-chan struct{}
 }
 
 var (
@@ -222,6 +225,8 @@ var (
 	// ErrQueueClosed means Submit was called after Queue.Close; the returned
 	// acknowledgment carries this error.
 	ErrQueueClosed = errors.New("sessionlog: queue is closed")
+	// ErrQueueFull refuses a write rather than blocking the window event thread.
+	ErrQueueFull = errors.New("sessionlog: queue is full")
 	// ErrTooNew means the file was written by a newer build.
 	ErrTooNew = errors.New("sessionlog: database is newer than this build")
 )
@@ -361,12 +366,17 @@ func normalizeStart(record Record, now time.Time) (Record, error) {
 }
 
 // statusAfterEvent is the status an event moves a session to, if it moves it.
-// A successful transport or shell makes the session active; an automatic retry
+// A ready desktop transport or opened shell makes the session active; an automatic retry
 // moves it back to reconnecting. A failed or disconnected transport does not
 // decide the outcome on its own: Engine calls Finish with a terminal status.
-func statusAfterEvent(kind EventKind) (Status, bool) {
+func statusAfterEvent(kind EventKind, protocol Protocol) (Status, bool) {
 	switch kind {
-	case EventConnected, EventShellOpened:
+	case EventConnected:
+		if protocol == ProtocolVNC || protocol == ProtocolRDP {
+			return StatusActive, true
+		}
+		return 0, false
+	case EventShellOpened:
 		return StatusActive, true
 	case EventReconnectScheduled, EventReconnectStarted:
 		return StatusReconnecting, true

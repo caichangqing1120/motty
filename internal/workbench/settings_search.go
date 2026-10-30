@@ -191,7 +191,7 @@ func (state *State) eachSettingsEntry(add func(settingsEntry)) {
 	row(settingsFiles, tools.FilesFollowSetup, tools.FilesFollowSetupDescription)
 
 	row(settingsSecurity, m.SessionLogs.SettingsCaptureRow, m.SessionLogs.SettingsCaptureDescription)
-	row(settingsSecurity, m.SessionLogs.SettingsStorageRow, m.SessionLogs.SettingsStorageFmt)
+	row(settingsSecurity, m.SessionLogs.SettingsStorageRow, m.SessionLogs.SettingsStorageDescription)
 	row(settingsSecurity, m.SessionLogs.ClearUnfavorited, m.SessionLogs.ClearUnfavoritedPrompt)
 	row(settingsSecurity, m.SessionLogs.ClearAll, m.SessionLogs.ClearAllPrompt)
 	row(settingsSecurity, m.SettingsVault, m.SettingsVaultEmpty)

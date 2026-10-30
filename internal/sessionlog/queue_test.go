@@ -130,6 +130,7 @@ func TestQueueCloseDrainsPendingWrites(t *testing.T) {
 	// No acknowledgment is read before Close: Close drains what is pending.
 	queue.Submit(Operation{Kind: OpStart, Record: sampleRecord(id, base)})
 	queue.Submit(Operation{Kind: OpAppendEvent, Event: Event{RecordID: id, Kind: EventConnected, At: base.Add(time.Second)}})
+	queue.Submit(Operation{Kind: OpAppendEvent, Event: Event{RecordID: id, Kind: EventShellOpened, At: base.Add(2 * time.Second)}})
 	if err := queue.Close(); err != nil {
 		t.Fatalf("Queue.Close: %v", err)
 	}
@@ -140,8 +141,8 @@ func TestQueueCloseDrainsPendingWrites(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Events: %v", err)
 	}
-	if len(events) != 1 {
-		t.Fatalf("drained events = %d, want 1", len(events))
+	if len(events) != 2 {
+		t.Fatalf("drained events = %d, want 2", len(events))
 	}
 }
 
@@ -214,4 +215,152 @@ func TestQueueReportsWriteErrors(t *testing.T) {
 	if err := queue.Close(); err == nil {
 		t.Fatal("Queue.Close did not report the failed writes")
 	}
+}
+
+func TestQueueWriteFailureCannotDeadlockFullSubmitAndClose(t *testing.T) {
+	store, _ := openTestStore(t)
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	queue := NewQueue(store)
+	queue.Submit(Operation{Kind: OpStart}) // writer waits for the closed store's mutex
+	deadline := time.Now().Add(time.Second)
+	for len(queue.ops) != 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if len(queue.ops) != 0 {
+		store.mu.Unlock()
+		t.Fatal("writer did not start the first operation")
+	}
+	for i := 0; i < queueBuffer; i++ {
+		queue.Submit(Operation{Kind: OpStart})
+	}
+	submitted := make(chan struct{})
+	go func() {
+		queue.Submit(Operation{Kind: OpStart})
+		close(submitted)
+	}()
+	for time.Now().Before(deadline) {
+		if !queue.mu.TryLock() {
+			break
+		}
+		queue.mu.Unlock()
+		time.Sleep(time.Millisecond)
+	}
+	store.mu.Unlock()
+	select {
+	case <-submitted:
+	case <-time.After(time.Second):
+		t.Fatal("Submit is deadlocked behind the writer's error path")
+	}
+	closed := make(chan error, 1)
+	go func() { closed <- queue.Close() }()
+	select {
+	case err := <-closed:
+		if !errors.Is(err, ErrClosed) && !errors.Is(err, ErrQueueFull) {
+			t.Fatalf("Close error = %v, want the failed or refused write", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Close is deadlocked after a full queue and write failure")
+	}
+}
+
+func TestQueueFullDoesNotBlockTheWindowThread(t *testing.T) {
+	store, _ := openTestStore(t)
+	store.mu.Lock()
+	queue := NewQueue(store)
+	queue.Submit(Operation{Kind: OpStart})
+	deadline := time.Now().Add(time.Second)
+	for len(queue.ops) != 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if len(queue.ops) != 0 {
+		store.mu.Unlock()
+		t.Fatal("writer did not start")
+	}
+	for i := 0; i < queueBuffer; i++ {
+		queue.Submit(Operation{Kind: OpStart})
+	}
+	result := make(chan (<-chan error), 1)
+	go func() { result <- queue.Submit(Operation{Kind: OpStart}) }()
+	select {
+	case ack := <-result:
+		if err := awaitAck(t, ack); !errors.Is(err, ErrQueueFull) {
+			store.mu.Unlock()
+			t.Fatalf("full queue result = %v, want ErrQueueFull", err)
+		}
+	case <-time.After(100 * time.Millisecond):
+		store.mu.Unlock()
+		t.Fatal("a full journal queue blocked a connection callback")
+	}
+	store.mu.Unlock()
+	if err := queue.Close(); !errors.Is(err, ErrQueueFull) {
+		t.Fatalf("Close error = %v, want dropped write reported", err)
+	}
+}
+
+func TestQueueWaitOrdersWritesAfterAnotherWindow(t *testing.T) {
+	store, _ := openTestStore(t)
+	first := NewQueue(store)
+	second := NewQueue(store)
+	defer first.Close()
+	defer second.Close()
+	gate := make(chan struct{})
+	id := newUniqueID(t)
+	second.Submit(Operation{Kind: OpWait, Wait: gate})
+	finished := second.Submit(Operation{Kind: OpFinish, ID: id, Status: StatusEnded,
+		EndedAt: testBase().Add(time.Minute), Reason: ReasonUserClosed})
+	select {
+	case <-finished:
+		t.Fatal("destination finalized before the source window's writes landed")
+	case <-time.After(20 * time.Millisecond):
+	}
+	start := first.Submit(Operation{Kind: OpStart, Record: sampleRecord(id, testBase())})
+	if err := awaitAck(t, start); err != nil {
+		t.Fatal(err)
+	}
+	close(gate)
+	if err := awaitAck(t, finished); err != nil {
+		t.Fatalf("ordered finish: %v", err)
+	}
+	if got := findRecord(t, store, id); got.Status != StatusEnded {
+		t.Fatalf("moved session status = %v", got.Status)
+	}
+}
+
+func TestQueueFenceStillTracksAcceptedWritesWhenTheQueueIsFull(t *testing.T) {
+	store, _ := openTestStore(t)
+	store.mu.Lock()
+	queue := NewQueue(store)
+	queue.Submit(Operation{Kind: OpStart, Record: sampleRecord("first", testBase())})
+	deadline := time.Now().Add(time.Second)
+	for len(queue.ops) != 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if len(queue.ops) != 0 {
+		store.mu.Unlock()
+		t.Fatal("writer did not start")
+	}
+	for i := 0; i < queueBuffer; i++ {
+		queue.Submit(Operation{Kind: OpStart, Record: sampleRecord(fmt.Sprintf("item-%d", i), testBase())})
+	}
+	fence := queue.Fence()
+	select {
+	case <-fence:
+		store.mu.Unlock()
+		t.Fatal("fence closed before prior writes completed")
+	default:
+	}
+	if err := awaitAck(t, queue.Submit(Operation{Kind: OpStart})); !errors.Is(err, ErrQueueFull) {
+		store.mu.Unlock()
+		t.Fatalf("full queue = %v", err)
+	}
+	store.mu.Unlock()
+	select {
+	case <-fence:
+	case <-time.After(5 * time.Second):
+		t.Fatal("fence never completed after accepted writes")
+	}
+	queue.Close()
 }

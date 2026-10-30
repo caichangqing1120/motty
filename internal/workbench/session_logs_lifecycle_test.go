@@ -391,6 +391,9 @@ func TestSessionLogsWindowMoveKeepsTheRecord(t *testing.T) {
 	}
 	first := newTestState(t, optionsFor(firstWorld))
 	second := newTestState(t, optionsFor(secondWorld))
+	gate := make(chan struct{}, 1)
+	defer close(gate)
+	first.sessionLogs.queue.Submit(sessionlog.Operation{Kind: sessionlog.OpWait, Wait: gate})
 
 	connection := connectForLog(t, first, firstWorld)
 	id := first.sessions[0].logRecordID
@@ -408,13 +411,16 @@ func TestSessionLogsWindowMoveKeepsTheRecord(t *testing.T) {
 	if second.sessions[0].logRecordID != id {
 		t.Fatalf("the moved tab's record id = %q, want %q", second.sessions[0].logRecordID, id)
 	}
-	// The source window must not have finalized the moved session's row.
-	rows := sessionLogRows(t, first)
-	if len(rows) != 1 || rows[0].ID != id || rows[0].Status != sessionlog.StatusActive {
-		t.Fatalf("source rows after the move = %+v", rows)
-	}
-
 	second.closeSession(second.sessions[0].ID)
+	// The destination must not finalize before the source's queued Start lands.
+	barrier := second.sessionLogs.queue.Submit(sessionlog.Operation{Kind: sessionlog.OpWait})
+	select {
+	case <-barrier:
+		t.Fatal("destination finished while the source journal was still blocked")
+	case <-time.After(30 * time.Millisecond):
+	}
+	gate <- struct{}{}
+	settleSessionLogs(t, first)
 	settleSessionLogs(t, second)
 	store, err := sessionlog.Open(filepath.Join(dir, "session-logs.db"))
 	if err != nil {

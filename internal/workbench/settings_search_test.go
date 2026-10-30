@@ -147,6 +147,23 @@ func TestSearchResultsSteadyPaintDoesNotAllocate(t *testing.T) {
 	}
 }
 
+func TestSearchingSessionLogSettingsDoesNotShowFormatVerbs(t *testing.T) {
+	state := newTestState(t, testOptions(t))
+	searchSettings(t, state, state.messages.SessionLogs.SettingsStorageRow)
+	found := false
+	for _, result := range state.settings.results[:state.settings.count] {
+		if result.label == state.messages.SessionLogs.SettingsStorageRow {
+			found = true
+			if strings.Contains(result.description, "%d") || strings.Contains(result.description, "%s") {
+				t.Fatalf("search result renders an unformatted storage string: %q", result.description)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("session log storage setting is absent from search")
+	}
+}
+
 func TestEveryEntryOfTheSearchIndexPointsAtSomethingThePageDraws(t *testing.T) {
 	state := newTestState(t, testOptions(t))
 	state.Click(hitSettings)

@@ -1,20 +1,19 @@
 package sessionlog
 
 import (
-	"errors"
 	"fmt"
 	"sync"
 )
 
-// queueBuffer bounds the operations waiting for the writer. Submit blocks when
-// the buffer is full, which backpressures a caller instead of growing without
-// limit; it never waits for a database commit.
+// queueBuffer bounds the operations waiting for the writer. Submit refuses a
+// full queue instead of blocking the window event thread.
 const queueBuffer = 64
 
 // queuedOperation is one operation and the channel that reports its result.
 type queuedOperation struct {
 	operation Operation
 	ack       chan error
+	done      chan struct{}
 }
 
 // Queue runs the store's writes on one goroutine in submission order, so the UI
@@ -34,9 +33,11 @@ type Queue struct {
 
 	mu        sync.Mutex
 	closed    bool
+	errMu     sync.Mutex
 	firstErr  error
 	closeOnce sync.Once
 	closeErr  error
+	lastDone  <-chan struct{}
 }
 
 // NewQueue starts an ordered writer for store.
@@ -53,23 +54,34 @@ func NewQueue(store *Store) *Queue {
 func (q *Queue) run() {
 	defer close(q.done)
 	for item := range q.ops {
-		err := q.store.apply(item.operation)
+		if item.operation.Wait != nil {
+			<-item.operation.Wait
+		}
+		var err error
+		if item.operation.Kind == OpWait {
+			// A fence has no store side effect.
+		} else {
+			err = q.store.apply(item.operation)
+		}
 		if err != nil {
-			q.mu.Lock()
-			q.firstErr = errors.Join(q.firstErr, err)
-			q.mu.Unlock()
+			q.errMu.Lock()
+			if q.firstErr == nil {
+				q.firstErr = err
+			}
+			q.errMu.Unlock()
 		}
 		item.ack <- err
 		close(item.ack)
+		close(item.done)
 	}
 }
 
 // Submit queues one operation. Operations are applied in submission order, also
 // when many goroutines submit. The returned channel receives exactly one error
-// and is then closed. Submit never blocks for the database, only while the
-// bounded queue is full.
+// and is then closed. Submit never blocks for the database or a full queue.
 func (q *Queue) Submit(operation Operation) <-chan error {
 	ack := make(chan error, 1)
+	item := queuedOperation{operation: operation, ack: ack, done: make(chan struct{})}
 	q.mu.Lock()
 	if q.closed {
 		q.mu.Unlock()
@@ -77,11 +89,30 @@ func (q *Queue) Submit(operation Operation) <-chan error {
 		close(ack)
 		return ack
 	}
-	// Hold the mutex across the send so Close cannot close the channel under an
-	// in-flight Submit; the writer keeps consuming, so this does not deadlock.
-	q.ops <- queuedOperation{operation: operation, ack: ack}
+	// A nonblocking send under mu is safe against Close and keeps a slow disk
+	// from freezing the connection path.
+	select {
+	case q.ops <- item:
+		q.lastDone = item.done
+	default:
+		q.errMu.Lock()
+		if q.firstErr == nil {
+			q.firstErr = ErrQueueFull
+		}
+		q.errMu.Unlock()
+		ack <- ErrQueueFull
+		close(ack)
+	}
 	q.mu.Unlock()
 	return ack
+}
+
+// Fence is completed after all operations accepted before this call have run.
+// It never needs a free slot in the bounded queue.
+func (q *Queue) Fence() <-chan struct{} {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.lastDone
 }
 
 // Close flushes the submitted operations, stops the writer and returns the first
@@ -95,9 +126,9 @@ func (q *Queue) Close() error {
 		close(q.ops)
 		q.mu.Unlock()
 		<-q.done
-		q.mu.Lock()
+		q.errMu.Lock()
 		q.closeErr = q.firstErr
-		q.mu.Unlock()
+		q.errMu.Unlock()
 	})
 	q.mu.Lock()
 	defer q.mu.Unlock()

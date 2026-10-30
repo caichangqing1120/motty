@@ -548,29 +548,33 @@ func TestRetentionPreservesFavorites(t *testing.T) {
 	for i := 0; i < maxUnfavoritedRecords+5; i++ {
 		id := fmt.Sprintf("ret-%04d", i)
 		ids = append(ids, id)
-		raw = append(raw, sampleRecord(id, base.Add(time.Duration(i)*time.Millisecond)))
+		record := sampleRecord(id, base.Add(time.Duration(i)*time.Millisecond))
+		record.Status = StatusEnded
+		raw = append(raw, record)
 	}
 	oldFavorite1 := sampleRecord("old-favorite-1", base.Add(-100*24*time.Hour))
 	oldFavorite1.Favorite = true
+	oldFavorite1.Status = StatusEnded
 	oldFavorite2 := sampleRecord("old-favorite-2", base.Add(-200*24*time.Hour))
 	oldFavorite2.Favorite = true
+	oldFavorite2.Status = StatusEnded
 	raw = append(raw, oldFavorite1, oldFavorite2)
 	insertRawRecords(t, store, raw)
 
 	// One insert applies retention: at most 500 un-favorited rows, oldest first.
 	startRecord(t, store, sampleRecord("ret-trigger", base.Add(time.Hour)))
-	if got := countRows(t, store, `favorite = 0`); got != maxUnfavoritedRecords {
-		t.Fatalf("un-favorited rows = %d, want %d", got, maxUnfavoritedRecords)
+	if got := countRows(t, store, `favorite = 0 AND status = ?`, int(StatusEnded)); got != maxUnfavoritedRecords {
+		t.Fatalf("finished un-favorited rows = %d, want %d", got, maxUnfavoritedRecords)
 	}
 	if got := countRows(t, store, `favorite = 1`); got != 2 {
 		t.Fatalf("favorite rows = %d, want 2", got)
 	}
-	for _, id := range ids[:6] {
+	for _, id := range ids[:5] {
 		if recordExists(t, store, id) {
 			t.Fatalf("oldest un-favorited row %q survived retention", id)
 		}
 	}
-	for _, id := range []string{ids[6], ids[len(ids)-1], "old-favorite-1", "old-favorite-2", "ret-trigger"} {
+	for _, id := range []string{ids[5], ids[len(ids)-1], "old-favorite-1", "old-favorite-2", "ret-trigger"} {
 		if !recordExists(t, store, id) {
 			t.Fatalf("retention dropped %q", id)
 		}
@@ -586,31 +590,101 @@ func TestRetentionPreservesFavorites(t *testing.T) {
 	if recordExists(t, store, staleID) {
 		t.Fatalf("row older than 90 days survived retention")
 	}
-	if got := countRows(t, store, `favorite = 0`); got != maxUnfavoritedRecords {
-		t.Fatalf("un-favorited rows after age prune = %d, want %d", got, maxUnfavoritedRecords)
+	if got := countRows(t, store, `favorite = 0 AND status = ?`, int(StatusEnded)); got != maxUnfavoritedRecords-1 {
+		t.Fatalf("finished rows after age prune = %d, want %d", got, maxUnfavoritedRecords-1)
 	}
 
-	// Un-favoriting an out-of-window row prunes it on the next insert.
-	oldest := ids[6]
-	if err := store.SetFavorite(oldest, true); err != nil {
+	// Un-favoriting an expired record must not wait for another connection.
+	if err := store.SetFavorite("old-favorite-1", false); err != nil {
 		t.Fatalf("SetFavorite: %v", err)
 	}
-	startRecord(t, store, sampleRecord("ret-trigger-3", base.Add(3*time.Hour)))
-	if !recordExists(t, store, oldest) {
-		t.Fatalf("favorite %q was pruned", oldest)
+	mustList(t, store, Query{})
+	if recordExists(t, store, "old-favorite-1") {
+		t.Fatal("expired un-favorited row survived a read without another connection")
 	}
-	if err := store.SetFavorite(oldest, false); err != nil {
-		t.Fatalf("SetFavorite: %v", err)
+}
+
+func TestRetentionKeepsAnActiveSessionUntilItCanFinish(t *testing.T) {
+	store, _ := openTestStore(t)
+	base := testBase()
+	active := sampleRecord("long-running-session", base.Add(-91*24*time.Hour))
+	startRecord(t, store, active)
+	for i := 0; i < maxUnfavoritedRecords+1; i++ {
+		id := fmt.Sprintf("finished-%03d", i)
+		started := base.Add(time.Duration(i) * time.Millisecond)
+		startRecord(t, store, sampleRecord(id, started))
+		if err := store.Finish(id, StatusEnded, started.Add(time.Second), ReasonUserClosed); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if !recordExists(t, store, oldest) {
-		t.Fatalf("un-favoriting pruned %q immediately, want it pruned on the next insert", oldest)
+	if !recordExists(t, store, active.ID) {
+		t.Fatal("retention deleted a live session before it could finish")
 	}
-	startRecord(t, store, sampleRecord("ret-trigger-4", base.Add(4*time.Hour)))
-	if recordExists(t, store, oldest) {
-		t.Fatalf("un-favorited out-of-window row %q survived the next prune", oldest)
+	if err := store.Finish(active.ID, StatusEnded, base, ReasonUserClosed); err != nil {
+		t.Fatalf("live session could not finish: %v", err)
 	}
-	if got := countRows(t, store, `favorite = 0`); got != maxUnfavoritedRecords {
-		t.Fatalf("un-favorited rows after unfavorite prune = %d, want %d", got, maxUnfavoritedRecords)
+}
+
+func TestRetentionExpiresEndedSessionsWithoutAnotherConnection(t *testing.T) {
+	store, _ := openTestStore(t)
+	base := testBase()
+	id := "expired-ended-session"
+	started := base.Add(-91 * 24 * time.Hour)
+	startRecord(t, store, sampleRecord(id, started))
+	if err := store.Finish(id, StatusEnded, started.Add(time.Minute), ReasonUserClosed); err != nil {
+		t.Fatal(err)
+	}
+	if page := mustList(t, store, Query{}); len(page.Records) != 0 {
+		t.Fatalf("expired session remains without a new connection: %+v", page.Records)
+	}
+}
+
+func TestTransportConnectedIsNotYetAnOpenShell(t *testing.T) {
+	store, _ := openTestStore(t)
+	base := testBase()
+	sshID := "pending-shell"
+	startRecord(t, store, sampleRecord(sshID, base))
+	if err := store.AppendEvent(Event{RecordID: sshID, Kind: EventConnected, At: base.Add(time.Second)}); err != nil {
+		t.Fatal(err)
+	}
+	if got := findRecord(t, store, sshID); got.Status != StatusConnecting {
+		t.Fatalf("SSH transport alone became usable: %v", got.Status)
+	}
+	if err := store.AppendEvent(Event{RecordID: sshID, Kind: EventShellOpened, At: base.Add(2 * time.Second)}); err != nil {
+		t.Fatal(err)
+	}
+	if got := findRecord(t, store, sshID); got.Status != StatusActive {
+		t.Fatalf("opened shell not active: %v", got.Status)
+	}
+	desktop := sampleRecord("desktop-ready", base)
+	desktop.Protocol = ProtocolVNC
+	startRecord(t, store, desktop)
+	if err := store.AppendEvent(Event{RecordID: desktop.ID, Kind: EventConnected, At: base.Add(time.Second)}); err != nil {
+		t.Fatal(err)
+	}
+	if got := findRecord(t, store, desktop.ID); got.Status != StatusActive {
+		t.Fatalf("desktop transport did not become active: %v", got.Status)
+	}
+}
+
+func TestStoreOpensAHomePathContainingSQLiteURICharacters(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "home?#%", "session-logs.db")
+	store, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open path with URI characters: %v", err)
+	}
+	id := newUniqueID(t)
+	startRecord(t, store, sampleRecord(id, testBase()))
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatalf("reopen path with URI characters: %v", err)
+	}
+	defer reopened.Close()
+	if got := findRecord(t, reopened, id); got.ID != id {
+		t.Fatalf("reopened wrong database: %+v", got)
 	}
 }
 
@@ -624,6 +698,9 @@ func TestRecoverOnlyPriorRun(t *testing.T) {
 	currentActiveRecord.RunID = "run-current"
 	startRecord(t, store, currentActiveRecord)
 	if err := store.AppendEvent(Event{RecordID: currentActive, Kind: EventConnected, At: base.Add(time.Second)}); err != nil {
+		t.Fatalf("AppendEvent: %v", err)
+	}
+	if err := store.AppendEvent(Event{RecordID: currentActive, Kind: EventShellOpened, At: base.Add(2 * time.Second)}); err != nil {
 		t.Fatalf("AppendEvent: %v", err)
 	}
 	currentEnded := "current-ended"
@@ -644,6 +721,9 @@ func TestRecoverOnlyPriorRun(t *testing.T) {
 	priorActive := prior("prior-active", "run-old")
 	startRecord(t, store, priorActive)
 	if err := store.AppendEvent(Event{RecordID: priorActive.ID, Kind: EventConnected, At: base.Add(time.Second)}); err != nil {
+		t.Fatalf("AppendEvent: %v", err)
+	}
+	if err := store.AppendEvent(Event{RecordID: priorActive.ID, Kind: EventShellOpened, At: base.Add(2 * time.Second)}); err != nil {
 		t.Fatalf("AppendEvent: %v", err)
 	}
 	priorReconnecting := prior("prior-reconnecting", "run-old")
@@ -738,8 +818,12 @@ func TestAppendEventUpdatesStatusAndReconnectCount(t *testing.T) {
 		}
 	}
 	appendEvent(EventConnected, 0)
+	if got := findRecord(t, store, id); got.Status != StatusConnecting {
+		t.Fatalf("status after transport = %v, want connecting", got.Status)
+	}
+	appendEvent(EventShellOpened, 0)
 	if got := findRecord(t, store, id); got.Status != StatusActive {
-		t.Fatalf("status after connected = %v, want active", got.Status)
+		t.Fatalf("status after shell opened = %v, want active", got.Status)
 	}
 	appendEvent(EventReconnectScheduled, 3)
 	got := findRecord(t, store, id)
@@ -751,8 +835,12 @@ func TestAppendEventUpdatesStatusAndReconnectCount(t *testing.T) {
 		t.Fatalf("reconnect count = %d after a lower attempt, want 3", got.ReconnectCount)
 	}
 	appendEvent(EventConnected, 0)
+	if got := findRecord(t, store, id); got.Status != StatusReconnecting {
+		t.Fatalf("transport reconnected before shell = %v, want reconnecting", got.Status)
+	}
+	appendEvent(EventShellOpened, 0)
 	if got := findRecord(t, store, id); got.Status != StatusActive {
-		t.Fatalf("status after reconnected = %v, want active", got.Status)
+		t.Fatalf("status after shell reopened = %v, want active", got.Status)
 	}
 	appendEvent(EventDisconnected, 9)
 	if got := findRecord(t, store, id); got.ReconnectCount != 3 {

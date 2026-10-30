@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -117,6 +118,19 @@ func sessionLogsWait(t testing.TB, state *State) {
 	}
 }
 
+func sessionLogsWaitFor(t testing.TB, state *State, ready func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for !ready() && time.Now().Before(deadline) {
+		state.Wake()
+		time.Sleep(time.Millisecond)
+	}
+	if !ready() {
+		t.Fatal("session log write did not update the page")
+	}
+	sessionLogsWait(t, state)
+}
+
 // sessionLogsType types into the page's native search field and lets the wake
 // path turn it into a query, as a window does.
 func sessionLogsType(t testing.TB, state *State, text string) {
@@ -176,6 +190,107 @@ func sessionLogRowIDs(state *State) []string {
 		ids[index] = state.sessionLogs.view.page[index].id
 	}
 	return ids
+}
+
+func TestSessionLogsPageReloadsAfterLeavingAndReturning(t *testing.T) {
+	state := sessionLogsState(t, false)
+	if len(state.sessionLogs.view.rows) != 0 {
+		t.Fatal("expected an initially empty log page")
+	}
+	state.Click(hitHosts)
+	sessionLogsInsert(t, state, sessionlog.Record{
+		ID: "new-session", RunID: "run-test", Host: "new-host", Protocol: sessionlog.ProtocolSSH,
+		StartedAt: sessionLogsTestNow.Add(-time.Minute),
+	}, sessionlog.StatusEnded, sessionlog.ReasonUserClosed, sessionLogsTestNow)
+	state.Click(hitSessionLogs)
+	sessionLogsWait(t, state)
+	if ids := sessionLogRowIDs(state); len(ids) != 1 || ids[0] != "new-session" {
+		t.Fatalf("reopened page kept an obsolete query: %v", ids)
+	}
+}
+
+func TestSessionLogsVisiblePageRefreshesAfterLifecycleWrite(t *testing.T) {
+	state := newTestState(t, sessionLogsTestOptions(t))
+	state.openSessionLogs()
+	sessionLogsWait(t, state)
+	session := &Session{}
+	state.startSessionLog(session, state.hosts[0])
+	state.submitSessionLogEvent(session, sessionlog.EventConnected, 0)
+	settleSessionLogs(t, state)
+	deadline := time.Now().Add(3 * time.Second)
+	for len(state.sessionLogs.view.rows) == 0 && time.Now().Before(deadline) {
+		state.Wake()
+		time.Sleep(time.Millisecond)
+	}
+	sessionLogsWait(t, state)
+	if ids := sessionLogRowIDs(state); len(ids) != 1 {
+		t.Fatalf("a connection created while the page was open is absent: %v", ids)
+	}
+}
+
+func TestSessionLogsFailedFavoriteDoesNotClaimSuccess(t *testing.T) {
+	state := sessionLogsState(t, true)
+	state.selectSessionLogRecord("log-00")
+	sessionLogsWait(t, state)
+	if err := state.sessionLogs.store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	state.toggleSessionLogFavorite()
+	if state.sessionLogs.view.statusText == state.messages.SessionLogs.FavoritedStatus ||
+		state.sessionLogs.view.rows[0].Favorite {
+		t.Fatal("favorite was reported as saved before the database accepted it")
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for !state.sessionLogs.view.statusDanger && time.Now().Before(deadline) {
+		state.Wake()
+		time.Sleep(time.Millisecond)
+	}
+	if state.sessionLogs.view.statusText != state.messages.SessionLogs.WriteFailed {
+		t.Fatalf("failed write has no visible error: %q", state.sessionLogs.view.statusText)
+	}
+}
+
+func TestSessionLogsFailedDeleteAndClearKeepVisibleRows(t *testing.T) {
+	for _, action := range []string{"delete", "clear"} {
+		t.Run(action, func(t *testing.T) {
+			state := sessionLogsState(t, true)
+			if err := state.sessionLogs.store.Close(); err != nil {
+				t.Fatal(err)
+			}
+			before := sessionLogRowIDs(state)
+			if action == "delete" {
+				state.deleteSessionLogRecord(before[0])
+			} else {
+				state.clearSessionLogRecords(true)
+			}
+			if ids := sessionLogRowIDs(state); !slices.Equal(ids, before) {
+				t.Fatalf("unconfirmed %s removed rows: %v, want %v", action, ids, before)
+			}
+			if state.sessionLogs.view.statusText == state.messages.SessionLogs.Deleted ||
+				state.sessionLogs.view.statusText == state.messages.SessionLogs.ClearedAll {
+				t.Fatal("unconfirmed mutation claimed success")
+			}
+		})
+	}
+}
+
+func TestSessionLogsUnfavoriteLeavesFavoritesOnlyResults(t *testing.T) {
+	state := sessionLogsState(t, true)
+	if err := state.sessionLogs.store.SetFavorite("log-00", true); err != nil {
+		t.Fatal(err)
+	}
+	state.sessionLogs.view.favoriteOnly = true
+	state.applySessionLogFilters()
+	sessionLogsWait(t, state)
+	if ids := sessionLogRowIDs(state); len(ids) != 1 || ids[0] != "log-00" {
+		t.Fatalf("favorite-only setup: %v", ids)
+	}
+	state.selectSessionLogRecord("log-00")
+	sessionLogsWait(t, state)
+	state.toggleSessionLogFavorite()
+	sessionLogsWaitFor(t, state, func() bool {
+		return len(state.sessionLogs.view.page) == 0 && state.sessionLogs.view.statusText == state.messages.SessionLogs.UnfavoritedStatus
+	})
 }
 
 // The sidebar row sits right after Monitor, the palette reaches the page
@@ -515,7 +630,7 @@ func TestSessionLogsKeyboardAndDeletionFocus(t *testing.T) {
 		t.Fatalf("delete description does not name the record: %q", state.form.description)
 	}
 	state.Click(hitFormSubmit)
-	sessionLogsWait(t, state)
+	sessionLogsWaitFor(t, state, func() bool { return len(view.page) == 5 && view.statusText == state.messages.SessionLogs.Deleted })
 	if got := sessionLogRowIDs(state); len(got) != 5 {
 		t.Fatalf("rows after the delete = %v", got)
 	}
@@ -552,7 +667,7 @@ func TestSessionLogsKeyboardAndDeletionFocus(t *testing.T) {
 		t.Fatal("the clear-all confirmation does not state that favorites go too")
 	}
 	state.Click(hitFormSubmit)
-	sessionLogsWait(t, state)
+	sessionLogsWaitFor(t, state, func() bool { return len(view.page) == 0 && view.statusText == state.messages.SessionLogs.ClearedAll })
 	if len(view.page) != 0 || view.statusText != state.messages.SessionLogs.ClearedAll {
 		t.Fatalf("after clearing all: rows=%d status=%q", len(view.page), view.statusText)
 	}

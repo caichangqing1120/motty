@@ -20,6 +20,8 @@ func (state *State) openSessionLogs() {
 	if state.activeSection != sectionSessionLogs {
 		state.activeSection = sectionSessionLogs
 		state.save()
+		state.refreshSessionLogs()
+		return
 	}
 	view := &state.sessionLogs.view
 	if !view.loaded && !view.loading {
@@ -45,6 +47,11 @@ func (state *State) syncSessionLogs() {
 		view.scrollRows = 0
 		view.detailOpen = false
 		view.selected = ""
+		state.refreshSessionLogs()
+		return
+	}
+	if state.activeSection == sectionSessionLogs && view.dirty {
+		view.dirty = false
 		state.refreshSessionLogs()
 		return
 	}
@@ -183,24 +190,17 @@ func (state *State) closeSessionLogDetail() {
 	}
 }
 
-// toggleSessionLogFavorite flips the favorite mark of the selected record. The
-// row is updated here, so the page answers immediately; the write goes through
-// the ordered queue like every other journal write.
+// toggleSessionLogFavorite waits for the writer before claiming success. A
+// failed write leaves the currently painted favorite unchanged.
 func (state *State) toggleSessionLogFavorite() {
 	record := state.sessionLogSelectedRecord()
 	if record == nil {
 		return
 	}
-	record.Favorite = !record.Favorite
-	on := record.Favorite
-	state.setSessionLogFavorite(record.ID, on)
+	state.setSessionLogFavorite(record.ID, !record.Favorite)
 	view := &state.sessionLogs.view
 	view.statusDanger = false
-	if on {
-		view.statusText = state.messages.SessionLogs.FavoritedStatus
-	} else {
-		view.statusText = state.messages.SessionLogs.UnfavoritedStatus
-	}
+	view.statusText = state.messages.SessionLogs.Loading
 	state.prepareSessionLogsView()
 }
 
@@ -224,48 +224,14 @@ func (state *State) askDeleteSessionLog() {
 	})
 }
 
-// deleteSessionLogRecord removes one record from the page and the store. The
-// request generation moves first, so a page already on its way cannot bring the
-// row back.
+// deleteSessionLogRecord keeps the row visible until the database confirms
+// deletion, so a write failure cannot appear to succeed.
 func (state *State) deleteSessionLogRecord(id string) {
 	view := &state.sessionLogs.view
-	state.sessionLogs.requestGeneration++
-	index := -1
-	for i := range view.rows {
-		if view.rows[i].ID == id {
-			index = i
-			break
-		}
-	}
 	state.deleteSessionLog(id)
-	if index < 0 {
-		return
-	}
-	view.rows = append(view.rows[:index], view.rows[index+1:]...)
-	// The in-flight page a refresh may deliver would still hold the row.
-	view.loading, view.loadingMore = false, false
-	if view.selected == id {
-		view.selected = ""
-		view.events = nil
-		view.eventsFor = ""
-		view.eventsLoad = false
-		view.detail = sessionLogDetail{}
-		view.detailOpen = false
-	}
+	view.statusDanger = false
+	view.statusText = state.messages.SessionLogs.Loading
 	state.prepareSessionLogsView()
-	view.statusDanger = false
-	view.statusText = state.messages.SessionLogs.Deleted
-	// Focus follows the row that took its place, or the search box when the
-	// page is empty: a keyboard user is never dropped out of the page.
-	if len(view.page) == 0 {
-		view.focusPending = hitSessionLogsSearch
-		return
-	}
-	next := min(index, len(view.page)-1)
-	state.selectSessionLogRecord(view.page[next].id)
-	view.statusText = state.messages.SessionLogs.Deleted
-	view.statusDanger = false
-	view.focusPending = hitSessionLogsRowList.At(next)
 }
 
 // askClearSessionLogs asks before clearing part of the journal. The prompt says
@@ -289,41 +255,10 @@ func (state *State) askClearSessionLogs(includeFavorites bool) {
 // recordings and the diagnostic log are other files and stay untouched.
 func (state *State) clearSessionLogRecords(includeFavorites bool) {
 	view := &state.sessionLogs.view
-	m := &state.messages.SessionLogs
 	state.clearSessionLogsAndNotify(includeFavorites)
-	state.sessionLogs.requestGeneration++
-	view.loading, view.loadingMore = false, false
-	if includeFavorites {
-		view.rows = nil
-		view.more = false
-	} else {
-		// Favorites survive the clear; keeping them in the page avoids a reload
-		// that could race the queued write.
-		kept := view.rows[:0]
-		for index := range view.rows {
-			if view.rows[index].Favorite {
-				kept = append(kept, view.rows[index])
-			}
-		}
-		view.rows = kept
-	}
-	view.page = view.page[:0]
-	view.next = sessionlog.Cursor{}
-	view.selected = ""
-	view.detailOpen = false
-	view.events = nil
-	view.eventsFor = ""
-	view.eventsLoad = false
-	view.detail = sessionLogDetail{}
-	view.scrollRows = 0
-	state.prepareSessionLogsView()
 	view.statusDanger = false
-	if includeFavorites {
-		view.statusText = m.ClearedAll
-	} else {
-		view.statusText = m.ClearedUnfavorited
-	}
-	view.focusPending = hitSessionLogsSearch
+	view.statusText = state.messages.SessionLogs.Loading
+	state.prepareSessionLogsView()
 }
 
 // jumpToLiveSession opens the tab that still owns the selected record. The

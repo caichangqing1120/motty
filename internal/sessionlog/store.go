@@ -62,11 +62,10 @@ type Store struct {
 // Open opens or creates the session log at path. The parent directory is
 // created 0700 and a new database file 0600; an existing file keeps its mode.
 // The database uses one connection, a busy timeout, the rollback journal (so no
-// side files appear) and secure_delete. A missing path, a path the driver would
-// misread, a corrupt file, a read-only file or a file from a newer build returns
+// side files appear) and secure_delete. A missing path, a corrupt file, a read-only file or a file from a newer build returns
 // an error; callers keep working without logging.
 func Open(path string) (*Store, error) {
-	if path == "" || strings.ContainsAny(path, "?#") {
+	if path == "" {
 		return nil, errors.New("sessionlog: bad database path")
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -84,7 +83,7 @@ func Open(path string) (*Store, error) {
 	if err := os.Chmod(path, 0o600); err != nil {
 		return nil, fmt.Errorf("sessionlog: protect database: %w", err)
 	}
-	db, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_pragma=journal_mode(DELETE)&_pragma=secure_delete(1)")
+	db, err := sql.Open("sqlite", sessionLogDSNPath(path)+"?_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_pragma=journal_mode(DELETE)&_pragma=secure_delete(1)")
 	if err != nil {
 		return nil, fmt.Errorf("sessionlog: open database: %w", err)
 	}
@@ -97,6 +96,18 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	return store, nil
+}
+
+// A path with URI delimiters needs escaping before SQLite query options are appended.
+func sessionLogDSNPath(path string) string {
+	if !strings.ContainsAny(path, "?#%") {
+		return path
+	}
+	escaped := strings.NewReplacer("%", "%25", "?", "%3f", "#", "%23").Replace(filepath.ToSlash(path))
+	if !strings.HasPrefix(escaped, "/") {
+		escaped = "/" + escaped
+	}
+	return "file://" + escaped
 }
 
 // migrate creates the schema of a new file, or validates the version of an
@@ -155,7 +166,7 @@ func (s *Store) Close() error {
 // Start inserts a connecting record. The lifecycle fields are owned by the
 // store: Status becomes connecting, EndedAt empty and Reason none. Host is
 // required; the other snapshots may be empty and are bounded. The insert also
-// applies retention: un-favorited rows are kept to the most recent
+// applies retention: finished un-favorited rows are kept to the most recent
 // maxUnfavoritedRecords and pruned once older than unfavoritedRetention,
 // measured from the new record's StartedAt; favorites are exempt.
 func (s *Store) Start(record Record) error {
@@ -196,11 +207,12 @@ func (s *Store) Start(record Record) error {
 func prune(tx *sql.Tx, reference time.Time) error {
 	cutoff := reference.Add(-unfavoritedRetention).UnixMilli()
 	_, err := tx.Exec(`DELETE FROM session_logs
-		WHERE favorite = 0
+		WHERE favorite = 0 AND status IN (?, ?, ?, ?)
 		  AND (started_at < ?
-		       OR id IN (SELECT id FROM session_logs WHERE favorite = 0
+		       OR id IN (SELECT id FROM session_logs WHERE favorite = 0 AND status IN (?, ?, ?, ?)
 		                 ORDER BY started_at DESC, id DESC LIMIT -1 OFFSET ?))`,
-		cutoff, maxUnfavoritedRecords)
+		int(StatusEnded), int(StatusFailed), int(StatusInterrupted), int(StatusTrackingStopped),
+		cutoff, int(StatusEnded), int(StatusFailed), int(StatusInterrupted), int(StatusTrackingStopped), maxUnfavoritedRecords)
 	if err != nil {
 		return fmt.Errorf("sessionlog: prune: %w", err)
 	}
@@ -246,7 +258,8 @@ func (s *Store) AppendEvent(event Event) error {
 	}
 	defer tx.Rollback()
 	var status Status
-	err = tx.QueryRow(`SELECT status FROM session_logs WHERE id = ?`, event.RecordID).Scan(&status)
+	var protocol Protocol
+	err = tx.QueryRow(`SELECT status, protocol FROM session_logs WHERE id = ?`, event.RecordID).Scan(&status, &protocol)
 	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("%w: event for %s", ErrNotFound, event.RecordID)
 	}
@@ -276,7 +289,7 @@ func (s *Store) AppendEvent(event Event) error {
 			return fmt.Errorf("sessionlog: append event: %w", err)
 		}
 	}
-	if next, ok := statusAfterEvent(event.Kind); ok {
+	if next, ok := statusAfterEvent(event.Kind, protocol); ok {
 		if _, err := tx.Exec(`UPDATE session_logs SET status = ? WHERE id = ?`, int(next), event.RecordID); err != nil {
 			return fmt.Errorf("sessionlog: append event: %w", err)
 		}
@@ -385,6 +398,9 @@ func (s *Store) List(query Query) (Page, error) {
 	if err := s.usable(); err != nil {
 		return Page{}, err
 	}
+	if err := s.pruneExpired(time.Now().UTC()); err != nil {
+		return Page{}, err
+	}
 	if query.Status != nil && !query.Status.valid() {
 		return Page{}, fmt.Errorf("%w: status filter %d", ErrInvalidRecord, *query.Status)
 	}
@@ -468,6 +484,21 @@ func (s *Store) List(query Query) (Page, error) {
 		page.Next = Cursor{StartedAt: last.StartedAt, ID: last.ID}
 	}
 	return page, nil
+}
+
+func (s *Store) pruneExpired(at time.Time) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("sessionlog: prune: %w", err)
+	}
+	defer tx.Rollback()
+	if err := prune(tx, at); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("sessionlog: prune: %w", err)
+	}
+	return nil
 }
 
 // Events returns a record's events, oldest first, at most maxEventsPerRecord.

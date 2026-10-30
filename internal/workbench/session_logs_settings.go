@@ -148,9 +148,21 @@ func (state *State) clearSessionLogsAndNotify(includeFavorites bool) {
 			state.sessionLogs.settings.requested = false
 			if err != nil {
 				state.reportSessionLogProblem("clear", err)
+				state.sessionLogs.view.statusText = state.messages.SessionLogs.WriteFailed
+				state.sessionLogs.view.statusDanger = true
+			} else {
+				if includeFavorites {
+					state.sessionLogs.view.statusText = state.messages.SessionLogs.ClearedAll
+				} else {
+					state.sessionLogs.view.statusText = state.messages.SessionLogs.ClearedUnfavorited
+				}
+				state.sessionLogs.view.statusDanger = false
+				state.sessionLogs.view.selected = ""
+				state.sessionLogs.view.detailOpen = false
+				state.sessionLogs.view.focusPending = hitSessionLogsSearch
 			}
 			if state.activeSection == sectionSessionLogs {
-				state.refreshSessionLogs()
+				state.sessionLogs.view.dirty = true
 			}
 		})
 	}()

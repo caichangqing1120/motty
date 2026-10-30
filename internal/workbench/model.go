@@ -196,6 +196,7 @@ type Session struct {
 	logRecordID string
 	logStatus   sessionlog.Status
 	logFinished bool
+	logBarrier  <-chan struct{} // earlier window's writes must land before this tab's writes
 
 	// keptAfterShell: the shell ended but the file panel or window still uses the
 	// connection, which closes with the last of them.

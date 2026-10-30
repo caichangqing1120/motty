@@ -82,6 +82,7 @@ type sessionLogsView struct {
 	appliedSearch  string
 	page           []sessionLogRow
 	loaded         bool
+	dirty          bool
 	loadingMore    bool
 	countText      string
 	statusText     string
@@ -211,9 +212,56 @@ func (state *State) submitSessionLog(operation sessionlog.Operation) {
 	}
 	ack := queue.Submit(operation)
 	go func() {
-		if err := <-ack; err != nil {
-			state.reportSessionLogProblem("write", err)
-		}
+		err := <-ack
+		state.aiPost(func(state *State) {
+			view := &state.sessionLogs.view
+			if err != nil {
+				state.reportSessionLogProblem("write", err)
+				view.statusText = state.messages.SessionLogs.WriteFailed
+				view.statusDanger = true
+			} else {
+				switch operation.Kind {
+				case sessionlog.OpSetFavorite:
+					view.statusDanger = false
+					if operation.Favorite {
+						view.statusText = state.messages.SessionLogs.FavoritedStatus
+					} else {
+						view.statusText = state.messages.SessionLogs.UnfavoritedStatus
+					}
+				case sessionlog.OpDelete:
+					view.statusDanger = false
+					view.statusText = state.messages.SessionLogs.Deleted
+					if view.selected == operation.ID {
+						index := -1
+						for i := range view.rows {
+							if view.rows[i].ID == operation.ID {
+								index = i
+								break
+							}
+						}
+						view.selected = ""
+						view.focusPending = hitSessionLogsSearch
+						if index >= 0 && len(view.rows) > 1 {
+							next := min(index, len(view.rows)-2)
+							if next == index {
+								view.selected = view.rows[index+1].ID
+							} else {
+								view.selected = view.rows[next].ID
+							}
+							view.focusPending = hitSessionLogsRowList.At(next)
+						}
+						view.detailOpen = false
+						view.events = nil
+						view.eventsFor = ""
+						view.eventsLoad = false
+					}
+				}
+			}
+			state.sessionLogs.settings.requested = false
+			if state.activeSection == sectionSessionLogs {
+				state.sessionLogs.view.dirty = true
+			}
+		})
 	}()
 }
 
@@ -244,7 +292,7 @@ func (state *State) startSessionLog(session *Session, host Host) {
 	session.logRecordID = id
 	session.logFinished = false
 	session.logStatus = sessionlog.StatusConnecting
-	state.submitSessionLog(sessionlog.Operation{Kind: sessionlog.OpStart, Record: record})
+	state.submitSessionLog(sessionlog.Operation{Kind: sessionlog.OpStart, Record: record, Wait: session.logBarrier})
 }
 
 // startSharedSessionLog records a tab that borrows an already connected
@@ -255,6 +303,7 @@ func (state *State) startSharedSessionLog(session *Session, host Host) {
 		return
 	}
 	state.submitSessionLogEvent(session, sessionlog.EventConnected, 0)
+	state.submitSessionLogEvent(session, sessionlog.EventShellOpened, 0)
 	session.logStatus = sessionlog.StatusActive
 }
 
@@ -265,6 +314,7 @@ func (state *State) submitSessionLogEvent(session *Session, kind sessionlog.Even
 	}
 	state.submitSessionLog(sessionlog.Operation{
 		Kind: sessionlog.OpAppendEvent,
+		Wait: session.logBarrier,
 		Event: sessionlog.Event{
 			RecordID: session.logRecordID,
 			Kind:     kind,
@@ -287,6 +337,7 @@ func (state *State) finishSessionLog(session *Session, status sessionlog.Status,
 	}
 	state.submitSessionLog(sessionlog.Operation{
 		Kind:    sessionlog.OpFinish,
+		Wait:    session.logBarrier,
 		ID:      session.logRecordID,
 		Status:  status,
 		EndedAt: state.wallNow().UTC(),

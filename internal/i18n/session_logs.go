@@ -97,6 +97,7 @@ type SessionLogsMessages struct {
 	SettingsCaptureRow         string
 	SettingsCaptureDescription string
 	SettingsStorageRow         string
+	SettingsStorageDescription string
 	SettingsStorageFmt         string
 	SettingsStorageUnavailable string
 }
@@ -232,6 +233,7 @@ var chineseSessionLogs = SessionLogsMessages{
 	SettingsCaptureRow:         "保留本机会话日志",
 	SettingsCaptureDescription: "记录在这台电脑上连接了哪台主机、何时开始、如何结束。不保存终端内容或密码。",
 	SettingsStorageRow:         "本机记录",
+	SettingsStorageDescription: "查看本机保存的会话记录及占用空间。",
 	SettingsStorageFmt:         "%d 条记录 · 占用 %s",
 	SettingsStorageUnavailable: "会话日志数据库无法打开，记录功能当前不可用。",
 }
@@ -367,6 +369,7 @@ var englishSessionLogs = SessionLogsMessages{
 	SettingsCaptureRow:         "Keep local session logs",
 	SettingsCaptureDescription: "Record which host a session reached, when it started and how it ended on this computer. Terminal contents and passwords are never saved.",
 	SettingsStorageRow:         "Records",
+	SettingsStorageDescription: "View locally stored session records and disk usage.",
 	SettingsStorageFmt:         "%d records · %s",
 	SettingsStorageUnavailable: "The session log database cannot be opened, so recording is unavailable.",
 }
