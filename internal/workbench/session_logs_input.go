@@ -193,12 +193,16 @@ func (state *State) closeSessionLogDetail() {
 // toggleSessionLogFavorite waits for the writer before claiming success. A
 // failed write leaves the currently painted favorite unchanged.
 func (state *State) toggleSessionLogFavorite() {
+	view := &state.sessionLogs.view
+	if view.favoritePending != "" {
+		return
+	}
 	record := state.sessionLogSelectedRecord()
 	if record == nil {
 		return
 	}
+	view.favoritePending = record.ID
 	state.setSessionLogFavorite(record.ID, !record.Favorite)
-	view := &state.sessionLogs.view
 	view.statusDanger = false
 	view.statusText = state.messages.SessionLogs.Loading
 	state.prepareSessionLogsView()

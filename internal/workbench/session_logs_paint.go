@@ -780,7 +780,7 @@ func (state *State) paintSessionLogsWorkspace(canvas *ui.Canvas, bounds ui.Rect)
 	state.paintSessionLogFavoriteFilter(canvas, favoriteFilterBox.Rect())
 
 	selected := state.sessionLogSelectedRecord() != nil
-	state.paintToolbarButtonIn(canvas, hitSessionLogsFavorite, favoriteButton.Rect(), state.sessionLogFavoriteLabel(), state.sessionLogFavoriteIcon(), false, selected, condensed)
+	state.paintToolbarButtonIn(canvas, hitSessionLogsFavorite, favoriteButton.Rect(), state.sessionLogFavoriteLabel(), state.sessionLogFavoriteIcon(), false, selected && view.favoritePending == "", condensed)
 	state.paintToolbarButtonIn(canvas, hitSessionLogsDelete, deleteButton.Rect(), m.Delete, iconTrash, false, selected, condensed)
 	state.paintToolbarButtonIn(canvas, hitSessionLogsClearFavorite, clearFavoriteButton.Rect(), m.ClearUnfavorited, iconEraser, false, state.sessionLogsCanClear(), condensed)
 	state.paintToolbarButtonIn(canvas, hitSessionLogsClearAll, clearAllButton.Rect(), m.ClearAll, iconTrash, false, state.sessionLogsCanClear(), condensed)

@@ -250,6 +250,28 @@ func TestSessionLogsFailedFavoriteDoesNotClaimSuccess(t *testing.T) {
 	}
 }
 
+func TestSessionLogsFavoriteIgnoresRepeatedClickUntilWriteSettles(t *testing.T) {
+	state := sessionLogsState(t, true)
+	state.selectSessionLogRecord("log-00")
+	sessionLogsWait(t, state)
+	state.toggleSessionLogFavorite()
+	state.toggleSessionLogFavorite()
+	if state.sessionLogs.view.favoritePending != "log-00" {
+		t.Fatal("favorite write is not marked pending")
+	}
+	sessionLogsWaitFor(t, state, func() bool {
+		return state.sessionLogs.view.favoritePending == "" &&
+			state.sessionLogs.view.statusText == state.messages.SessionLogs.FavoritedStatus
+	})
+	if record := state.sessionLogSelectedRecord(); record == nil || !record.Favorite {
+		t.Fatalf("the confirmed favorite is not reflected in the selected row: %+v", record)
+	}
+	state.toggleSessionLogFavorite()
+	sessionLogsWaitFor(t, state, func() bool {
+		return state.sessionLogs.view.statusText == state.messages.SessionLogs.UnfavoritedStatus
+	})
+}
+
 func TestSessionLogsFailedDeleteAndClearKeepVisibleRows(t *testing.T) {
 	for _, action := range []string{"delete", "clear"} {
 		t.Run(action, func(t *testing.T) {

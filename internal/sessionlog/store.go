@@ -54,6 +54,7 @@ CREATE TABLE session_log_events (
 type Store struct {
 	db   *sql.DB
 	path string
+	now  func() time.Time
 
 	mu     sync.Mutex
 	closed bool
@@ -65,6 +66,15 @@ type Store struct {
 // side files appear) and secure_delete. A missing path, a corrupt file, a read-only file or a file from a newer build returns
 // an error; callers keep working without logging.
 func Open(path string) (*Store, error) {
+	return OpenWithClock(path, time.Now)
+}
+
+// OpenWithClock uses the supplied wall clock for retention and timestamps.
+// It lets the workbench use the same clock as its session lifecycle events.
+func OpenWithClock(path string, now func() time.Time) (*Store, error) {
+	if now == nil {
+		now = time.Now
+	}
 	if path == "" {
 		return nil, errors.New("sessionlog: bad database path")
 	}
@@ -90,7 +100,7 @@ func Open(path string) (*Store, error) {
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 	db.SetConnMaxLifetime(0)
-	store := &Store{db: db, path: path}
+	store := &Store{db: db, path: path, now: now}
 	if err := store.migrate(); err != nil {
 		db.Close()
 		return nil, err
@@ -175,7 +185,7 @@ func (s *Store) Start(record Record) error {
 	if err := s.usable(); err != nil {
 		return err
 	}
-	normalized, err := normalizeStart(record, time.Now().UTC())
+	normalized, err := normalizeStart(record, s.now().UTC())
 	if err != nil {
 		return err
 	}
@@ -247,7 +257,7 @@ func (s *Store) AppendEvent(event Event) error {
 	}
 	at := event.At
 	if at.IsZero() {
-		at = time.Now().UTC()
+		at = s.now().UTC()
 	} else {
 		at = at.UTC()
 	}
@@ -329,7 +339,7 @@ func (s *Store) Finish(id string, status Status, endedAt time.Time, reason Reaso
 	}
 	at := endedAt
 	if at.IsZero() {
-		at = time.Now().UTC()
+		at = s.now().UTC()
 	} else {
 		at = at.UTC()
 	}
@@ -374,7 +384,7 @@ func (s *Store) Recover(runID string, at time.Time) error {
 	}
 	ended := at
 	if ended.IsZero() {
-		ended = time.Now().UTC()
+		ended = s.now().UTC()
 	} else {
 		ended = ended.UTC()
 	}
@@ -398,7 +408,7 @@ func (s *Store) List(query Query) (Page, error) {
 	if err := s.usable(); err != nil {
 		return Page{}, err
 	}
-	if err := s.pruneExpired(time.Now().UTC()); err != nil {
+	if err := s.pruneExpired(s.now().UTC()); err != nil {
 		return Page{}, err
 	}
 	if query.Status != nil && !query.Status.valid() {

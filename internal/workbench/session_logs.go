@@ -67,15 +67,16 @@ type sessionLogsView struct {
 
 	unavailable bool
 
-	selected     string
-	events       []sessionlog.Event
-	eventsFor    string
-	eventsMore   bool
-	eventsErr    string
-	eventsLoad   bool
-	eventGen     uint64
-	selectedGen  uint64
-	selectedLive bool
+	selected        string
+	favoritePending string
+	events          []sessionlog.Event
+	eventsFor       string
+	eventsMore      bool
+	eventsErr       string
+	eventsLoad      bool
+	eventGen        uint64
+	selectedGen     uint64
+	selectedLive    bool
 
 	// The page.
 	search         text.Editor
@@ -158,7 +159,7 @@ func (state *State) initSessionLogs() {
 	}
 	state.sessionLogs.results = make(chan sessionLogsResult, 8)
 	state.sessionLogs.done = make(chan struct{})
-	store, err := sessionlog.Open(state.sessionLogPath())
+	store, err := sessionlog.OpenWithClock(state.sessionLogPath(), state.options.WallNow)
 	if err != nil {
 		state.sessionLogs.openErr = err
 		state.sessionLogs.view.unavailable = true
@@ -215,6 +216,9 @@ func (state *State) submitSessionLog(operation sessionlog.Operation) {
 		err := <-ack
 		state.aiPost(func(state *State) {
 			view := &state.sessionLogs.view
+			if operation.Kind == sessionlog.OpSetFavorite && view.favoritePending == operation.ID {
+				view.favoritePending = ""
+			}
 			if err != nil {
 				state.reportSessionLogProblem("write", err)
 				view.statusText = state.messages.SessionLogs.WriteFailed

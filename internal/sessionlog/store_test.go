@@ -31,6 +31,27 @@ func openTestStore(t *testing.T) (*Store, string) {
 	return store, path
 }
 
+func TestListRetentionUsesStoreClock(t *testing.T) {
+	now := time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
+	store, err := OpenWithClock(filepath.Join(t.TempDir(), "session-logs.db"), func() time.Time { return now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	record := sampleRecord("clock-record", now.Add(-40*24*time.Hour))
+	startRecord(t, store, record)
+	if err := store.Finish(record.ID, StatusEnded, now.Add(-39*24*time.Hour), ReasonUserClosed); err != nil {
+		t.Fatal(err)
+	}
+	if page := mustList(t, store, Query{}); len(page.Records) != 1 {
+		t.Fatalf("record within the injected clock's retention window was removed: %+v", page.Records)
+	}
+	now = now.Add(51 * 24 * time.Hour)
+	if page := mustList(t, store, Query{}); len(page.Records) != 0 {
+		t.Fatalf("expired record remains after the clock advances: %+v", page.Records)
+	}
+}
+
 func sampleRecord(id string, started time.Time) Record {
 	return Record{
 		ID:        id,
