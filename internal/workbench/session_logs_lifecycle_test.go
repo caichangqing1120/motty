@@ -543,3 +543,48 @@ func assertSessionLogFileOmits(t *testing.T, state *State, secrets ...string) {
 		}
 	}
 }
+
+func TestSessionLogsUnavailableDatabaseDoesNotBlockConnections(t *testing.T) {
+	dir := t.TempDir()
+	// A directory where the journal file should be makes Open fail the same way a
+	// permission or filesystem problem would.
+	if err := os.Mkdir(filepath.Join(dir, "session-logs.db"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	options := Options{
+		KnownHostsPath:        filepath.Join(dir, "known_hosts"),
+		StatePath:             filepath.Join(dir, "state.json"),
+		Keystore:              &memKeys{},
+		PreferredLanguages:    func() []string { return nil },
+		SystemAppearance:      func() app.Appearance { return app.AppearanceUnknown },
+		WatchSystemAppearance: func(func()) func() { return func() {} },
+		SetNativeAppearance:   func(app.Appearance) {},
+		WallNow:               func() time.Time { return time.Date(2026, 10, 30, 8, 30, 0, 0, time.UTC) },
+	}
+	world := &world{}
+	options.Dial = func(config sshconn.Config) Connection {
+		fake := &fakeConn{}
+		world.conns = append(world.conns, fake)
+		return fake
+	}
+	if err := saveState(options.StatePath, savedState{Hosts: sampleHosts}); err != nil {
+		t.Fatal(err)
+	}
+	state := newTestState(t, options)
+	if state.sessionLogs.store != nil || !state.sessionLogs.view.unavailable {
+		t.Fatalf("a journal that cannot open is still available: store %v view %v", state.sessionLogs.store, state.sessionLogs.view.unavailable)
+	}
+	connection := connect(t, state, world)
+	connection.set(func(status *sshconn.Status) { status.Phase = sshconn.PhaseConnected })
+	state.Wake()
+	if state.sessions[0].term == nil || state.sessions[0].term.shell == nil {
+		t.Fatal("an unreadable journal blocked the SSH session")
+	}
+	state.activeSection = sectionSessionLogs
+	state.openSessionLogs()
+	_, texts := paintedTexts(state)
+	if !contains(texts, state.messages.SessionLogs.Unavailable) {
+		t.Fatal("the page does not say that records are unavailable")
+	}
+	state.closeSession(state.sessions[0].ID)
+}
