@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vivaui/viva/components"
 	"github.com/vivaui/viva/ui"
 	"motty/internal/configstore"
 	"motty/internal/i18n"
@@ -205,6 +206,21 @@ func TestSessionLogsClearScopeOnlyTouchesItsOwnDatabase(t *testing.T) {
 		t.Fatalf("rows after clearing all = %+v", rows.Records)
 	}
 	assertSessionLogSentinels(t, dir, sentinels)
+}
+
+func TestSessionLogsSettingsClearFailureShowsAnError(t *testing.T) {
+	state := newTestState(t, testOptions(t))
+	openSessionLogSettings(t, state)
+	if err := state.sessionLogs.store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	state.clearSessionLogsAndNotify(true)
+	deadline := time.Now().Add(3 * time.Second)
+	for len(state.fileNotices.items) == 0 && time.Now().Before(deadline) {
+		state.Wake()
+		time.Sleep(time.Millisecond)
+	}
+	requireActionNotice(t, state, state.messages.SessionLogs.WriteFailed, components.ToastError)
 }
 
 func assertSessionLogSentinels(t *testing.T, dir string, sentinels map[string][]byte) {

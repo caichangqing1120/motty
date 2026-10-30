@@ -150,6 +150,7 @@ func (state *State) clearSessionLogsAndNotify(includeFavorites bool) {
 				state.reportSessionLogProblem("clear", err)
 				state.sessionLogs.view.statusText = state.messages.SessionLogs.WriteFailed
 				state.sessionLogs.view.statusDanger = true
+				state.showActionError(state.messages.SessionLogs.Title, state.messages.SessionLogs.WriteFailed)
 			} else {
 				if includeFavorites {
 					state.sessionLogs.view.statusText = state.messages.SessionLogs.ClearedAll
