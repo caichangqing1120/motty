@@ -707,6 +707,8 @@ func (state *State) workspaceName() string {
 	switch state.activeSection {
 	case sectionDashboard:
 		return "monitor"
+	case sectionSessionLogs:
+		return "session-logs"
 	case sectionTerminal:
 		return "terminal"
 	case sectionKeys:
@@ -751,6 +753,8 @@ func (state *State) restoreWorkspace(workspace string) {
 	switch workspace {
 	case "monitor":
 		state.activeSection = sectionDashboard
+	case "session-logs":
+		state.activeSection = sectionSessionLogs
 	case "terminal":
 		if state.activeSessionID != 0 {
 			state.activeSection = sectionTerminal

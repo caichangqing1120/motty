@@ -386,6 +386,10 @@ const (
 	// the other sections do not renumber between builds.
 	sectionDebug
 	sectionDashboard
+	// sectionSessionLogs is the local connection journal. It comes after the
+	// monitor page and keeps its place even in builds whose page is hidden, so
+	// the other sections do not renumber.
+	sectionSessionLogs
 )
 
 // State owns the complete interactive state of the window.
