@@ -203,6 +203,7 @@ type Messages struct {
 	MenuCopy                               string
 	MenuPaste                              string
 	MenuSelectAll                          string
+	MenuClearScreen                        string
 	MenuClearScrollback                    string
 	MenuResourceMonitor                    string
 	LocalTerminal                          string
@@ -232,6 +233,9 @@ type Messages struct {
 	ShortcutNewTab                       string
 	ShortcutLocalTerminal                string
 	ShortcutCloseTab                     string
+	ShortcutNextTab                      string
+	ShortcutPreviousTab                  string
+	ShortcutClearScreen                  string
 	RecordingStart                       string
 	RecordingStop                        string
 	RecordingExport                      string

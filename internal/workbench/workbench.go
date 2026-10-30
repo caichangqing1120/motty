@@ -314,19 +314,20 @@ var (
 var hitRemoteStats = tree.ID(shellHits, "remote-stats") // The terminal's context menu owns a fixed range too: it is painted by the
 // window, over every pane, for the session that raised it.
 var (
-	hitTerminalMenuDismiss    = tree.ID(terminalMenuHits, "terminal-menu-dismiss")
-	hitTerminalMenuCopy       = tree.ID(terminalMenuHits, "terminal-menu-copy")
-	hitTerminalMenuPaste      = tree.ID(terminalMenuHits, "terminal-menu-paste")
-	hitTerminalMenuSelectAll  = tree.ID(terminalMenuHits, "terminal-menu-select-all")
-	hitTerminalMenuClear      = tree.ID(terminalMenuHits, "terminal-menu-clear")
-	hitTerminalMenuSplitRight = tree.ID(terminalMenuHits, "terminal-menu-split-right")
-	hitTerminalMenuSplitDown  = tree.ID(terminalMenuHits, "terminal-menu-split-down")
-	hitTerminalMenuClosePane  = tree.ID(terminalMenuHits, "terminal-menu-close-pane")
-	hitTerminalMenuFiles      = tree.ID(terminalMenuHits, "terminal-menu-files")
-	hitTerminalMenuStats      = tree.ID(terminalMenuHits, "terminal-menu-stats")
-	hitLocalTerminal          = tree.ID(terminalMenuHits, "local-terminal")
-	hitTerminalMenuReconnect  = tree.ID(terminalMenuHits, "terminal-menu-reconnect")
-	hitTerminalMenuTransfer   = tree.ID(terminalMenuHits, "terminal-menu-transfer")
+	hitTerminalMenuDismiss     = tree.ID(terminalMenuHits, "terminal-menu-dismiss")
+	hitTerminalMenuCopy        = tree.ID(terminalMenuHits, "terminal-menu-copy")
+	hitTerminalMenuPaste       = tree.ID(terminalMenuHits, "terminal-menu-paste")
+	hitTerminalMenuSelectAll   = tree.ID(terminalMenuHits, "terminal-menu-select-all")
+	hitTerminalMenuClearScreen = tree.ID(terminalMenuHits, "terminal-menu-clear-screen")
+	hitTerminalMenuClear       = tree.ID(terminalMenuHits, "terminal-menu-clear")
+	hitTerminalMenuSplitRight  = tree.ID(terminalMenuHits, "terminal-menu-split-right")
+	hitTerminalMenuSplitDown   = tree.ID(terminalMenuHits, "terminal-menu-split-down")
+	hitTerminalMenuClosePane   = tree.ID(terminalMenuHits, "terminal-menu-close-pane")
+	hitTerminalMenuFiles       = tree.ID(terminalMenuHits, "terminal-menu-files")
+	hitTerminalMenuStats       = tree.ID(terminalMenuHits, "terminal-menu-stats")
+	hitLocalTerminal           = tree.ID(terminalMenuHits, "local-terminal")
+	hitTerminalMenuReconnect   = tree.ID(terminalMenuHits, "terminal-menu-reconnect")
+	hitTerminalMenuTransfer    = tree.ID(terminalMenuHits, "terminal-menu-transfer")
 )
 
 // The saved-passwords dialogs, and the boxes that offer to save.
@@ -1972,6 +1973,9 @@ func fieldForDialogHit(id ui.ID) hostField {
 // Key provides roving keyboard focus for terminal tabs.
 func (state *State) Key(event ui.KeyEvent) (outcome ui.EventResult) {
 	defer state.afterEvent(&outcome)
+	if result, handled := state.namedShortcut(event); handled {
+		return result
+	}
 	if state.tabDrag.active && event.Key == ui.KeyEscape {
 		state.tabDrag = tabDrag{}
 		return ui.EventResult{Handled: true, Repaint: true}

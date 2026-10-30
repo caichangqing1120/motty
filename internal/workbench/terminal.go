@@ -13,6 +13,7 @@ import (
 	"github.com/vivaui/viva/ui"
 	"motty/internal/autofill"
 	"motty/internal/cmdhistory"
+	"motty/internal/i18n"
 	"motty/internal/sessionlog"
 	"motty/internal/sshconn"
 	"motty/internal/term"
@@ -334,6 +335,29 @@ const (
 // say writes one line of local output.
 func (t *terminal) say(style, line string) {
 	t.write([]byte(style + line + sgrReset + "\r\n"))
+}
+
+// clearScreen empties the terminal: the scrollback and every row above the line
+// the cursor is on, which becomes the first row. The selection goes with the
+// rows it pointed at, and an open find rescans the rows that are left. Nothing
+// is sent to the shell, whose prompt line survives, so the line editor keeps
+// writing where it expects. The assistant's marks go with the rows it ran in:
+// a row that was erased is not the assistant's command when it is written again.
+func (t *terminal) clearScreen(messages i18n.Messages) {
+	if !t.screen.ClearScreen() {
+		return
+	}
+	t.selection.clear()
+	t.find.refreshIfChanged(t.screen, messages, 0)
+	kept := t.screen.Row(0).ID
+	if t.aiStartID != kept {
+		t.aiStartID = 0
+	}
+	for id := range t.aiRows {
+		if id != kept {
+			delete(t.aiRows, id)
+		}
+	}
 }
 
 func (t *terminal) write(p []byte) {
@@ -1086,14 +1110,6 @@ func (state *State) commandChord(session *Session, event ui.KeyEvent) ui.EventRe
 		state.activeSection = sectionHosts
 		state.save()
 	default:
-		if len(event.Text) == 1 && event.Text[0] >= '1' && event.Text[0] <= '9' {
-			index := int(event.Text[0] - '1')
-			if index < len(state.sessions) {
-				state.activeSessionID = state.sessions[index].ID
-				state.save()
-			}
-			return result
-		}
 		return ui.EventResult{Handled: true}
 	}
 	return result
