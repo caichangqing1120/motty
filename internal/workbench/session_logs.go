@@ -38,6 +38,9 @@ type sessionLogs struct {
 	enabled bool
 	openErr error
 	view    sessionLogsView
+	// settings is what Settings > Security shows about the journal. It is
+	// refreshed off the paint path, like the page's own view.
+	settings sessionLogsSettings
 	// results carries query completions from the worker goroutines back to the
 	// window thread; done is closed when the window stops caring.
 	results chan sessionLogsResult
@@ -146,6 +149,7 @@ var sessionLogProcessRunID = sync.OnceValue(func() string {
 // run left open, and starts the ordered writer. A database that cannot be opened
 // is remembered and reported, never fatal for connections.
 func (state *State) initSessionLogs() {
+	defer state.prepareSessionLogsSettings()
 	state.sessionLogs.enabled = !state.sessionLogsOff
 	state.sessionLogs.runID = state.options.SessionLogRunID
 	if state.sessionLogs.runID == "" {
@@ -508,6 +512,7 @@ func (state *State) postSessionLogsResult(result sessionLogsResult) {
 // dirty-check that starts a query runs here too, so typing in the native search
 // box becomes a store query before the repaint that shows its result.
 func (state *State) pumpSessionLogs() {
+	state.pumpSessionLogsSettings()
 	state.syncSessionLogs()
 	if state.sessionLogs.results == nil {
 		return
@@ -671,6 +676,10 @@ func (group *Group) broadcastSessionLogsEnabled(enabled bool) {
 	members := append([]*State(nil), group.members...)
 	group.mu.Unlock()
 	for _, member := range members {
+		// The peers hold the same device-local choice. None of them saves here:
+		// their next save writes the same value, and the switching window's save
+		// is the one that lands now.
+		member.sessionLogsOff = !enabled
 		member.setSessionLogsEnabled(enabled)
 		member.invalidateWindow()
 	}

@@ -91,6 +91,14 @@ type SessionLogsMessages struct {
 	ClearedAll                              string
 	FavoritedStatus, UnfavoritedStatus      string
 	WriteFailed                             string
+
+	// Settings > Security: the local capture switch and what the journal holds.
+	SettingsGroup              string
+	SettingsCaptureRow         string
+	SettingsCaptureDescription string
+	SettingsStorageRow         string
+	SettingsStorageFmt         string
+	SettingsStorageUnavailable string
 }
 
 var chineseSessionLogs = SessionLogsMessages{
@@ -219,6 +227,13 @@ var chineseSessionLogs = SessionLogsMessages{
 	FavoritedStatus:         "已收藏",
 	UnfavoritedStatus:       "已取消收藏",
 	WriteFailed:             "无法修改该记录。",
+
+	SettingsGroup:              "会话日志",
+	SettingsCaptureRow:         "保留本机会话日志",
+	SettingsCaptureDescription: "记录在这台电脑上连接了哪台主机、何时开始、如何结束。不保存终端内容或密码。",
+	SettingsStorageRow:         "本机会话记录",
+	SettingsStorageFmt:         "%d 条记录 · 占用 %s（%d 条收藏）",
+	SettingsStorageUnavailable: "会话日志数据库无法打开，记录功能当前不可用。",
 }
 
 var englishSessionLogs = SessionLogsMessages{
@@ -347,4 +362,11 @@ var englishSessionLogs = SessionLogsMessages{
 	FavoritedStatus:         "Marked as favorite",
 	UnfavoritedStatus:       "Favorite removed",
 	WriteFailed:             "The record could not be changed.",
+
+	SettingsGroup:              "Session logs",
+	SettingsCaptureRow:         "Keep local session logs",
+	SettingsCaptureDescription: "Record which host a session reached, when it started and how it ended on this computer. Terminal contents and passwords are never saved.",
+	SettingsStorageRow:         "Session records on this computer",
+	SettingsStorageFmt:         "%d records · %s on disk (%d favorites)",
+	SettingsStorageUnavailable: "The session log database cannot be opened, so recording is unavailable.",
 }

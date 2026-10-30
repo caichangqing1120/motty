@@ -290,7 +290,7 @@ func (state *State) askClearSessionLogs(includeFavorites bool) {
 func (state *State) clearSessionLogRecords(includeFavorites bool) {
 	view := &state.sessionLogs.view
 	m := &state.messages.SessionLogs
-	state.clearSessionLogs(includeFavorites)
+	state.clearSessionLogsAndNotify(includeFavorites)
 	state.sessionLogs.requestGeneration++
 	view.loading, view.loadingMore = false, false
 	if includeFavorites {
