@@ -588,3 +588,25 @@ func TestSessionLogsUnavailableDatabaseDoesNotBlockConnections(t *testing.T) {
 	}
 	state.closeSession(state.sessions[0].ID)
 }
+
+func TestSessionLogsContainerTabIsOneActiveRow(t *testing.T) {
+	now := time.Duration(0)
+	_, options := sessionLogTestOptions(t, &now)
+	state := newTestState(t, options)
+	host := state.hosts[0]
+	connection := &fakeConn{}
+	connection.set(func(status *sshconn.Status) { status.Phase = sshconn.PhaseConnected })
+	session := state.createHostSessionWithConnection(host, host.Address, connection, "docker exec -it app sh", nil)
+	if session == nil {
+		t.Fatal("the container tab was not created")
+	}
+	rows := sessionLogRows(t, state)
+	if len(rows) != 1 || rows[0].Protocol != sessionlog.ProtocolSSH || rows[0].Status != sessionlog.StatusActive {
+		t.Fatalf("container rows = %+v", rows)
+	}
+	state.closeSession(session.ID)
+	rows = sessionLogRows(t, state)
+	if len(rows) != 1 || rows[0].Status != sessionlog.StatusEnded {
+		t.Fatalf("container row after closing = %+v", rows)
+	}
+}
