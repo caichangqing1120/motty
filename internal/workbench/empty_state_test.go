@@ -74,7 +74,8 @@ func TestCatalogEmptyStatesUseSharedVisualMetrics(t *testing.T) {
 		{
 			// The journal is filled by the connection lifecycle, so its empty
 			// page has no create action; the record is what the page restores.
-			name: "session logs", section: sectionSessionLogs, title: "No sessions recorded yet",
+			name: "session logs", section: sectionSessionLogs,
+			title: func(state *State) string { return state.messages.SessionLogs.Empty },
 			prepare: func(state *State) {
 				state.sessionLogs.view.rows, state.sessionLogs.view.page = nil, nil
 				state.prepareSessionLogsView()
