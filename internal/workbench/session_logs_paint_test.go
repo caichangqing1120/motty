@@ -272,6 +272,18 @@ func TestSessionLogsFavoriteIgnoresRepeatedClickUntilWriteSettles(t *testing.T) 
 	})
 }
 
+func TestSessionLogsResultIsQueuedBeforeWindowInvalidation(t *testing.T) {
+	state := &State{}
+	state.sessionLogs.results = make(chan sessionLogsResult, 1)
+	state.sessionLogs.done = make(chan struct{})
+	state.options.Invalidate = func() {
+		if len(state.sessionLogs.results) != 1 {
+			t.Error("window was woken before its query result was available")
+		}
+	}
+	state.postSessionLogsResult(sessionLogsResult{generation: 1}, state.options.Invalidate)
+}
+
 func TestSessionLogsFailedDeleteAndClearKeepVisibleRows(t *testing.T) {
 	for _, action := range []string{"delete", "clear"} {
 		t.Run(action, func(t *testing.T) {

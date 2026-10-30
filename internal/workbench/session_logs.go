@@ -212,9 +212,10 @@ func (state *State) submitSessionLog(operation sessionlog.Operation) {
 		return
 	}
 	ack := queue.Submit(operation)
+	invalidate := state.options.Invalidate
 	go func() {
 		err := <-ack
-		state.aiPost(func(state *State) {
+		state.aiPostWithInvalidator(func(state *State) {
 			view := &state.sessionLogs.view
 			if operation.Kind == sessionlog.OpSetFavorite && view.favoritePending == operation.ID {
 				view.favoritePending = ""
@@ -265,7 +266,7 @@ func (state *State) submitSessionLog(operation sessionlog.Operation) {
 			if state.activeSection == sectionSessionLogs {
 				state.sessionLogs.view.dirty = true
 			}
-		})
+		}, invalidate)
 	}()
 }
 
@@ -503,9 +504,10 @@ func (state *State) refreshSessionLogs() {
 	}
 	generation := state.sessionLogs.requestGeneration
 	query := view.query
+	invalidate := state.options.Invalidate
 	go func() {
 		page, err := store.List(query)
-		state.postSessionLogsResult(sessionLogsResult{generation: generation, page: page, err: err})
+		state.postSessionLogsResult(sessionLogsResult{generation: generation, page: page, err: err}, invalidate)
 	}()
 	state.prepareSessionLogsView()
 }
@@ -524,9 +526,10 @@ func (state *State) loadMoreSessionLogs() {
 	view.err = ""
 	query := view.query
 	query.Cursor = view.next
+	invalidate := state.options.Invalidate
 	go func() {
 		page, err := store.List(query)
-		state.postSessionLogsResult(sessionLogsResult{generation: generation, page: page, err: err, appendPage: true})
+		state.postSessionLogsResult(sessionLogsResult{generation: generation, page: page, err: err, appendPage: true}, invalidate)
 	}()
 	state.prepareSessionLogsView()
 }
@@ -546,20 +549,22 @@ func (state *State) loadSessionLogEvents(id string) {
 		return
 	}
 	generation := view.eventGen
+	invalidate := state.options.Invalidate
 	go func() {
 		events, err := store.Events(id)
-		state.postSessionLogsResult(sessionLogsResult{eventsFor: id, eventsGen: generation, events: events, err: err})
+		state.postSessionLogsResult(sessionLogsResult{eventsFor: id, eventsGen: generation, events: events, err: err}, invalidate)
 	}()
 }
 
 // postSessionLogsResult hands a worker's answer to the window thread.
-func (state *State) postSessionLogsResult(result sessionLogsResult) {
-	if state.options.Invalidate != nil {
-		state.options.Invalidate()
-	}
+func (state *State) postSessionLogsResult(result sessionLogsResult, invalidate func()) {
 	select {
 	case <-state.sessionLogs.done:
+		return
 	case state.sessionLogs.results <- result:
+	}
+	if invalidate != nil {
+		invalidate()
 	}
 }
 

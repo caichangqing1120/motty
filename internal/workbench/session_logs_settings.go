@@ -92,9 +92,10 @@ func (state *State) pumpSessionLogsSettings() {
 		state.prepareSessionLogsSettings()
 		return
 	}
+	invalidate := state.options.Invalidate
 	go func() {
 		stats, err := store.Stats()
-		state.aiPost(func(state *State) { state.applySessionLogsStats(stats, err) })
+		state.aiPostWithInvalidator(func(state *State) { state.applySessionLogsStats(stats, err) }, invalidate)
 	}()
 }
 
@@ -142,9 +143,10 @@ func (state *State) clearSessionLogsAndNotify(includeFavorites bool) {
 		return
 	}
 	ack := queue.Submit(sessionlog.Operation{Kind: sessionlog.OpClear, IncludeFavorites: includeFavorites})
+	invalidate := state.options.Invalidate
 	go func() {
 		err := <-ack
-		state.aiPost(func(state *State) {
+		state.aiPostWithInvalidator(func(state *State) {
 			state.sessionLogs.settings.requested = false
 			if err != nil {
 				state.reportSessionLogProblem("clear", err)
@@ -165,6 +167,6 @@ func (state *State) clearSessionLogsAndNotify(includeFavorites bool) {
 			if state.activeSection == sectionSessionLogs {
 				state.sessionLogs.view.dirty = true
 			}
-		})
+		}, invalidate)
 	}()
 }
