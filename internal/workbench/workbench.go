@@ -726,6 +726,9 @@ type State struct {
 	// when the user disabled metadata capture in the settings.
 	sessionLogs    sessionLogs
 	sessionLogsOff bool
+	// sessionLogsLayout is the session-log page's flex layout, reused so a paint
+	// does not allocate its nodes.
+	sessionLogsLayout flex.View
 	// ai is the built-in assistant; see ai_state.go.
 	ai aiState
 }
@@ -1000,6 +1003,9 @@ func (state *State) EditorFor(hit ui.ID) *text.Editor {
 		if hit == hitKnownHostsSearch && state.activeSection == sectionKnownHosts && state.knownHosts.action == knownHostsActionNone {
 			return &state.knownHosts.search
 		}
+		if hit == hitSessionLogsSearch && state.activeSection == sectionSessionLogs {
+			return &state.sessionLogs.view.search
+		}
 	case modalNewHost:
 		if hit == hitDialogTags {
 			return &state.hostTagPicker().control.Query
@@ -1125,6 +1131,9 @@ func (state *State) WindowControlsStyle() app.WindowControlsStyle {
 // Click applies one stable hit action.
 func (state *State) Click(id ui.ID) {
 	if state.clickDashboard(id) {
+		return
+	}
+	if state.clickSessionLogs(id) {
 		return
 	}
 	if state.fileNotices.click(id) {
@@ -1749,6 +1758,9 @@ func (state *State) Pointer(event ui.PointerEvent) (outcome ui.EventResult) {
 	if result, handled := state.dashboardPointer(event); handled {
 		return result
 	}
+	if result, handled := state.sessionLogsPointer(event); handled {
+		return result
+	}
 	if result := state.toolbarSettingsPointer(event); result.Handled {
 		return result
 	}
@@ -2055,6 +2067,9 @@ func (state *State) key(event ui.KeyEvent) ui.EventResult {
 		return result
 	}
 	if result, handled := state.knownHostsKey(event); handled {
+		return result
+	}
+	if result, handled := state.sessionLogsKey(event); handled {
 		return result
 	}
 	if result, handled := state.updateKey(event); handled {

@@ -9,6 +9,9 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/vivaui/viva/text"
+	"github.com/vivaui/viva/ui"
+	"motty/internal/i18n"
 	"motty/internal/sessionlog"
 	"motty/internal/sshconn"
 )
@@ -46,6 +49,11 @@ type sessionLogs struct {
 
 // sessionLogsView is what the page paints: the current query, the rows it
 // produced, and the detail selection. Paint only reads it; workers rebuild it.
+//
+// The page part below is the view's prepared projection: page, countText and the
+// empty state carry every string the table and the details show, and the
+// filters carry the choices the query is built from. See session_logs_paint.go
+// for the projection and session_logs_input.go for the interactions.
 type sessionLogsView struct {
 	query   sessionlog.Query
 	rows    []sessionlog.Record
@@ -65,6 +73,50 @@ type sessionLogsView struct {
 	eventGen     uint64
 	selectedGen  uint64
 	selectedLive bool
+
+	// The page.
+	search         text.Editor
+	appliedSearch  string
+	page           []sessionLogRow
+	loaded         bool
+	loadingMore    bool
+	countText      string
+	statusText     string
+	statusDanger   bool
+	emptyTitle     string
+	emptyText      string
+	emptyAction    string
+	emptyIcon      uint8
+	emptyDanger    bool
+	detailOpen     bool
+	detail         sessionLogDetail
+	synced         bool
+	syncedLanguage i18n.Language
+
+	// The filters. query.Status, query.Protocol, query.Favorite, query.Since and
+	// query.Until are the applied form of these choices.
+	timeRange      sessionLogTimeRange
+	statusFilter   sessionlog.Status
+	protocolFilter sessionlog.Protocol
+	favoriteOnly   bool
+	filterMenu     sessionLogFilterMenu
+	// filterBounds are the three filter triggers' places, recorded while the page
+	// paints; the popup opens under the one whose menu is open.
+	filterBounds [3]ui.Rect
+
+	// Scrolling and the geometry the wheel is aimed at, recorded while painting.
+	scrollRows   float32
+	scrollEvents float32
+	dragging     sessionLogDragging
+	dragGrab     float32
+	tableBody    ui.Rect
+	eventsBody   ui.Rect
+	// rowCells holds one row's cell rectangles so painting a row does not
+	// allocate: the table appends its geometry to this reused slice.
+	rowCells []ui.Rect
+	// focusPending is a focus move requested by an event handler and delivered
+	// by the next paint, which is the only place a focus request may be made.
+	focusPending ui.ID
 }
 
 // sessionLogsResult is one background query completion. Exactly one of page and
@@ -72,6 +124,9 @@ type sessionLogsView struct {
 type sessionLogsResult struct {
 	generation uint64
 	page       sessionlog.Page
+	// appendPage makes the page continue with these records instead of
+	// replacing what the view holds.
+	appendPage bool
 	events     []sessionlog.Event
 	eventsFor  string
 	eventsGen  uint64
@@ -103,6 +158,7 @@ func (state *State) initSessionLogs() {
 		state.sessionLogs.openErr = err
 		state.sessionLogs.view.unavailable = true
 		state.reportSessionLogProblem("open", err)
+		state.prepareSessionLogsView()
 		return
 	}
 	state.sessionLogs.store = store
@@ -110,6 +166,7 @@ func (state *State) initSessionLogs() {
 	if err := store.Recover(state.sessionLogs.runID, state.wallNow()); err != nil {
 		state.reportSessionLogProblem("recover", err)
 	}
+	state.prepareSessionLogsView()
 }
 
 // sessionLogPath is the private journal, beside the saved state and apart from
@@ -368,13 +425,21 @@ func (state *State) refreshSessionLogs() {
 	view := &state.sessionLogs.view
 	state.sessionLogs.requestGeneration++
 	view.loading = true
+	view.loadingMore = false
 	view.err = ""
+	// A new query starts at the newest record again; a page cursor belongs to
+	// the query that produced it.
+	view.query.Cursor = sessionlog.Cursor{}
+	view.next = sessionlog.Cursor{}
+	view.more = false
 	store := state.sessionLogs.store
 	if store == nil {
 		view.unavailable = true
 		view.rows = nil
-		view.more = false
+		view.page = view.page[:0]
 		view.loading = false
+		view.loaded = true
+		state.prepareSessionLogsView()
 		return
 	}
 	generation := state.sessionLogs.requestGeneration
@@ -383,6 +448,28 @@ func (state *State) refreshSessionLogs() {
 		page, err := store.List(query)
 		state.postSessionLogsResult(sessionLogsResult{generation: generation, page: page, err: err})
 	}()
+	state.prepareSessionLogsView()
+}
+
+// loadMoreSessionLogs continues the page with the next key cursor. The keyset
+// cursor means a row inserted while the page is open cannot shift the rest.
+func (state *State) loadMoreSessionLogs() {
+	view := &state.sessionLogs.view
+	store := state.sessionLogs.store
+	if store == nil || view.loading || view.loadingMore || !view.more {
+		return
+	}
+	state.sessionLogs.requestGeneration++
+	generation := state.sessionLogs.requestGeneration
+	view.loadingMore = true
+	view.err = ""
+	query := view.query
+	query.Cursor = view.next
+	go func() {
+		page, err := store.List(query)
+		state.postSessionLogsResult(sessionLogsResult{generation: generation, page: page, err: err, appendPage: true})
+	}()
+	state.prepareSessionLogsView()
 }
 
 // loadSessionLogEvents asks a worker for the selected record's timeline.
@@ -417,8 +504,11 @@ func (state *State) postSessionLogsResult(result sessionLogsResult) {
 	}
 }
 
-// pumpSessionLogs runs completed queries. Wake calls it; Paint never does.
+// pumpSessionLogs runs completed queries. Wake calls it; Paint never does. The
+// dirty-check that starts a query runs here too, so typing in the native search
+// box becomes a store query before the repaint that shows its result.
 func (state *State) pumpSessionLogs() {
+	state.syncSessionLogs()
 	if state.sessionLogs.results == nil {
 		return
 	}
@@ -440,6 +530,7 @@ func (state *State) applySessionLogsResult(result sessionLogsResult) {
 		}
 		view.eventsLoad = false
 		view.events = result.events
+		view.eventsMore = false
 		if record, ok := state.sessionLogRecord(view.selected); ok {
 			view.eventsMore = record.Truncated
 		}
@@ -447,23 +538,35 @@ func (state *State) applySessionLogsResult(result sessionLogsResult) {
 			view.eventsErr = "unavailable"
 			state.reportSessionLogProblem("events", result.err)
 		}
+		state.prepareSessionLogDetail()
 		return
 	}
 	if result.generation != state.sessionLogs.requestGeneration {
 		return
 	}
 	view.loading = false
+	view.loadingMore = false
+	view.loaded = true
 	if result.err != nil {
 		view.err = "unavailable"
-		view.rows = nil
-		view.more = false
+		if !result.appendPage {
+			view.rows = nil
+			view.more = false
+		}
 		state.reportSessionLogProblem("list", result.err)
+		state.prepareSessionLogsView()
 		return
 	}
-	view.rows = result.page.Records
+	if result.appendPage {
+		view.rows = append(view.rows, result.page.Records...)
+	} else {
+		view.rows = result.page.Records
+	}
 	view.next = result.page.Next
 	view.more = result.page.More
 	view.unavailable = false
+	view.err = ""
+	state.prepareSessionLogsView()
 }
 
 // setSessionLogFavorite marks one record, without touching any other history.

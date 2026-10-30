@@ -1212,6 +1212,9 @@ func (state *State) scroll(event ui.ScrollEvent) ui.EventResult {
 	if state.activeSection == sectionHosts && state.modal == modalNone && state.hostsContent > 0 {
 		return state.scrollHosts(event)
 	}
+	if state.activeSection == sectionSessionLogs && state.modal == modalNone {
+		return state.scrollSessionLogs(event)
+	}
 	session, ok := state.sessionByIDPointer(state.activeSessionID)
 	if hovered := state.terminalOrBarSession(event.Target); hovered != nil {
 		session, ok = hovered, true
