@@ -52,7 +52,8 @@ CREATE TABLE session_log_events (
 // Queue is not used; every method serializes on one mutex and the database uses
 // one connection.
 type Store struct {
-	db *sql.DB
+	db   *sql.DB
+	path string
 
 	mu     sync.Mutex
 	closed bool
@@ -78,6 +79,11 @@ func Open(path string) (*Store, error) {
 	if err := file.Close(); err != nil {
 		return nil, fmt.Errorf("sessionlog: open database: %w", err)
 	}
+	// A file that was already there keeps its mode through OpenFile; the journal
+	// is private, so tighten it here rather than leaving a copied file readable.
+	if err := os.Chmod(path, 0o600); err != nil {
+		return nil, fmt.Errorf("sessionlog: protect database: %w", err)
+	}
 	db, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_pragma=journal_mode(DELETE)&_pragma=secure_delete(1)")
 	if err != nil {
 		return nil, fmt.Errorf("sessionlog: open database: %w", err)
@@ -85,7 +91,7 @@ func Open(path string) (*Store, error) {
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 	db.SetConnMaxLifetime(0)
-	store := &Store{db: db}
+	store := &Store{db: db, path: path}
 	if err := store.migrate(); err != nil {
 		db.Close()
 		return nil, err
@@ -564,6 +570,38 @@ func (s *Store) Clear(includeFavorites bool) error {
 		return fmt.Errorf("sessionlog: clear: %w", err)
 	}
 	return nil
+}
+
+// Stats is the journal's footprint, so the page can show what it occupies
+// without reading the whole database.
+type Stats struct {
+	Records   int
+	Favorites int
+	Events    int
+	Bytes     int64
+}
+
+// Stats summarizes the journal: records, how many are favorites, how many
+// timeline events they hold, and the size of the file on disk. Reading it is a
+// few counts and one stat, never a scan of the rows.
+func (s *Store) Stats() (Stats, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.usable(); err != nil {
+		return Stats{}, err
+	}
+	var stats Stats
+	if err := s.db.QueryRow(`SELECT COUNT(*), COALESCE(SUM(favorite), 0) FROM session_logs`).
+		Scan(&stats.Records, &stats.Favorites); err != nil {
+		return Stats{}, fmt.Errorf("sessionlog: stats: %w", err)
+	}
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM session_log_events`).Scan(&stats.Events); err != nil {
+		return Stats{}, fmt.Errorf("sessionlog: stats: %w", err)
+	}
+	if info, err := os.Stat(s.path); err == nil {
+		stats.Bytes = info.Size()
+	}
+	return stats, nil
 }
 
 func boolInt(flag bool) int {

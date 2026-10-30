@@ -1160,3 +1160,57 @@ func TestEnumValuesAreStable(t *testing.T) {
 		}
 	}
 }
+
+func TestStatsReportsTheJournalFootprint(t *testing.T) {
+	store, _ := openTestStore(t)
+	empty, err := store.Stats()
+	if err != nil {
+		t.Fatalf("Stats on a new journal: %v", err)
+	}
+	if empty.Records != 0 || empty.Favorites != 0 || empty.Events != 0 || empty.Bytes <= 0 {
+		t.Fatalf("empty stats = %+v", empty)
+	}
+	base := testBase()
+	favorite := sampleRecord("stats-favorite", base)
+	favorite.Favorite = true
+	startRecord(t, store, favorite)
+	startRecord(t, store, sampleRecord("stats-plain", base.Add(time.Minute)))
+	for _, id := range []string{"stats-favorite", "stats-plain"} {
+		if err := store.AppendEvent(Event{RecordID: id, Kind: EventConnected, At: base}); err != nil {
+			t.Fatalf("event for %s: %v", id, err)
+		}
+	}
+	stats, err := store.Stats()
+	if err != nil {
+		t.Fatalf("Stats: %v", err)
+	}
+	if stats.Records != 2 || stats.Favorites != 1 || stats.Events != 2 || stats.Bytes < empty.Bytes {
+		t.Fatalf("stats = %+v (empty %+v)", stats, empty)
+	}
+}
+
+func TestOpenTightensAnExistingFilesMode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "session-logs.db")
+	store, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open existing: %v", err)
+	}
+	defer reopened.Close()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
+		t.Fatalf("existing file mode = %v, want 0600", info.Mode().Perm())
+	}
+}
