@@ -58,7 +58,7 @@ func (state *State) prepareSessionLogsSettings() {
 	case settings.unavailable:
 		settings.text = m.SettingsStorageUnavailable
 	case settings.hasStats:
-		settings.text = fmt.Sprintf(m.SettingsStorageFmt, settings.stats.Records, formatBytes(settings.stats.Bytes), settings.stats.Favorites)
+		settings.text = fmt.Sprintf(m.SettingsStorageFmt, settings.stats.Records, formatBytes(settings.stats.Bytes))
 	default:
 		settings.text = m.Loading
 	}

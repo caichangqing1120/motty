@@ -71,10 +71,19 @@ func TestChoosingAResultOpensItsCategoryScrolledToItAndLeavesTheSearch(t *testin
 	typeInto(state, hitSettingsSearch, state.messages.AISettings.ClearHistory)
 	var canvas ui.Canvas
 	state.Paint(&canvas, size)
-	if state.settings.count == 0 || state.settings.results[0].category != settingsAssistant {
+	// Other "clear" actions are listed too; pick the assistant's own row rather
+	// than relying on it being the first match.
+	result := -1
+	for index := 0; index < state.settings.count; index++ {
+		if state.settings.results[index].category == settingsAssistant {
+			result = index
+			break
+		}
+	}
+	if result < 0 {
 		t.Fatalf("results = %+v", state.settings.results[:state.settings.count])
 	}
-	state.Click(hitSettingsResultList.At(0))
+	state.Click(hitSettingsResultList.At(result))
 	if state.settingsCategory != settingsAssistant || state.settings.search.RuneCount() != 0 || state.settingsSearching() {
 		t.Fatalf("category %d, query %q", state.settingsCategory, state.settings.search.String())
 	}

@@ -11,6 +11,7 @@ import (
 
 	"github.com/vivaui/viva/ui"
 	"motty/internal/configstore"
+	"motty/internal/i18n"
 	"motty/internal/sessionlog"
 	"motty/internal/sshconn"
 )
@@ -238,7 +239,7 @@ func TestSessionLogsFootprintIsShownInTheSecurityPage(t *testing.T) {
 		t.Fatal("the security page never asked for the journal footprint")
 	}
 	_, texts := paintedTexts(state)
-	want := fmt.Sprintf(state.messages.SessionLogs.SettingsStorageFmt, 2, formatBytes(state.sessionLogs.settings.stats.Bytes), 1)
+	want := fmt.Sprintf(state.messages.SessionLogs.SettingsStorageFmt, 2, formatBytes(state.sessionLogs.settings.stats.Bytes))
 	if !contains(texts, want) {
 		t.Fatalf("the security page does not show %q", want)
 	}
@@ -255,5 +256,30 @@ func TestSessionLogsFootprintIsShownInTheSecurityPage(t *testing.T) {
 	_, texts = paintedTexts(state)
 	if !contains(texts, state.messages.SessionLogs.SettingsStorageUnavailable) {
 		t.Fatal("an unreadable journal is not reported on the security page")
+	}
+}
+
+func TestSessionLogsFootprintFollowsTheLanguage(t *testing.T) {
+	world, options := newWorld(t)
+	state := newTestState(t, options)
+	_ = world
+	insertSessionLog(t, state, "ffffffffffffffffffffffffffffffff", "language", time.Date(2026, 10, 30, 8, 0, 0, 0, time.UTC), false)
+	settleSessionLogs(t, state)
+	openSessionLogSettings(t, state)
+	deadline := time.Now().Add(5 * time.Second)
+	for !state.sessionLogs.settings.hasStats && time.Now().Before(deadline) {
+		state.Wake()
+		time.Sleep(2 * time.Millisecond)
+	}
+	if !state.sessionLogs.settings.hasStats {
+		t.Fatal("no footprint was read")
+	}
+	if got, want := state.sessionLogs.settings.text, fmt.Sprintf(state.messages.SessionLogs.SettingsStorageFmt, 1, formatBytes(state.sessionLogs.settings.stats.Bytes)); got != want {
+		t.Fatalf("English footprint = %q, want %q", got, want)
+	}
+	state.chooseLanguage(i18n.Chinese)
+	state.Wake()
+	if got, want := state.sessionLogs.settings.text, fmt.Sprintf(state.messages.SessionLogs.SettingsStorageFmt, 1, formatBytes(state.sessionLogs.settings.stats.Bytes)); got != want {
+		t.Fatalf("Chinese footprint = %q, want %q", got, want)
 	}
 }

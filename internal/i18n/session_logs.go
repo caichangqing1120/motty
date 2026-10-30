@@ -231,8 +231,8 @@ var chineseSessionLogs = SessionLogsMessages{
 	SettingsGroup:              "会话日志",
 	SettingsCaptureRow:         "保留本机会话日志",
 	SettingsCaptureDescription: "记录在这台电脑上连接了哪台主机、何时开始、如何结束。不保存终端内容或密码。",
-	SettingsStorageRow:         "本机会话记录",
-	SettingsStorageFmt:         "%d 条记录 · 占用 %s（%d 条收藏）",
+	SettingsStorageRow:         "本机记录",
+	SettingsStorageFmt:         "%d 条记录 · 占用 %s",
 	SettingsStorageUnavailable: "会话日志数据库无法打开，记录功能当前不可用。",
 }
 
@@ -366,7 +366,7 @@ var englishSessionLogs = SessionLogsMessages{
 	SettingsGroup:              "Session logs",
 	SettingsCaptureRow:         "Keep local session logs",
 	SettingsCaptureDescription: "Record which host a session reached, when it started and how it ended on this computer. Terminal contents and passwords are never saved.",
-	SettingsStorageRow:         "Session records on this computer",
-	SettingsStorageFmt:         "%d records · %s on disk (%d favorites)",
+	SettingsStorageRow:         "Records",
+	SettingsStorageFmt:         "%d records · %s",
 	SettingsStorageUnavailable: "The session log database cannot be opened, so recording is unavailable.",
 }
