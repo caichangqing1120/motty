@@ -18,6 +18,7 @@ import (
 	"motty/internal/configstore"
 	"motty/internal/highlight"
 	"motty/internal/i18n"
+	"motty/internal/sessionlog"
 	"motty/internal/sshconn"
 	layoutcore "motty/internal/workspace"
 )
@@ -717,6 +718,10 @@ type State struct {
 	clipboardRequest         remoteClipboardRequest
 	autofillRules            autofillUI
 	commandPalette           commandPalette
+	// sessionLogs is this window's local connection journal; it is off only
+	// when the user disabled metadata capture in the settings.
+	sessionLogs    sessionLogs
+	sessionLogsOff bool
 	// ai is the built-in assistant; see ai_state.go.
 	ai aiState
 }
@@ -765,6 +770,12 @@ func (state *State) Close() {
 			session.conn.Cancel()
 		}
 	}
+	// A window that closes ends its sessions; their rows say so before the
+	// journal is flushed and closed.
+	for index := range state.sessions {
+		state.finishSessionLog(&state.sessions[index], sessionlog.StatusEnded, sessionlog.ReasonUserClosed)
+	}
+	state.closeSessionLogs()
 	for index := range state.forwards {
 		state.forwards[index].stop()
 	}
@@ -835,6 +846,9 @@ func New(options Options) *State {
 	if report.outcome == loadOK && err == nil {
 		backupState(state.options.StatePath, saved)
 	}
+	// The metadata journal opens before the first Wake, which is when restored
+	// tabs are dialed: recovery of a previous run's rows must happen first.
+	state.initSessionLogs()
 	// Dialing waits for the first Wake: the window does not exist yet, so the
 	// connection's wake-ups would have nowhere to go and its progress would
 	// never reach the screen.
@@ -1442,6 +1456,9 @@ func (state *State) closeSession(id uint32) {
 	}
 	defer state.save()
 	session := &state.sessions[index]
+	// Closing a tab cancels its connection and deletes the Session in this call,
+	// so the terminal PhaseClosed is never observed; the row is finalized here.
+	state.finishSessionLog(session, sessionlog.StatusEnded, sessionlog.ReasonUserClosed)
 	state.cancelReconnect(session)
 	state.stopSessionForwards(session.ID, false)
 	if session.term != nil && session.term.shell != nil {
@@ -2219,6 +2236,9 @@ func (state *State) createHostSessionWithConnection(host Host, address string, c
 	if conn == nil {
 		state.startConnection(session, host)
 	} else {
+		// A container shell borrows an already connected transport: no dial
+		// happens, so its row starts here as an active session.
+		state.startSharedSessionLog(session, host)
 		state.finishStartingConnection(session, false)
 		state.apply(session, conn.Status())
 		state.pump(session)
