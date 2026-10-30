@@ -459,7 +459,11 @@ func (state *State) startConnectionMode(session *Session, host Host, automatic b
 	session.jumpPath = ""
 	if host.ID == localHostID {
 		// A shell on this machine: nothing to dial, so it is connected at once.
-		conn := newLocalConn(state.localShell)
+		shell := host.localShell
+		if shell == "" {
+			shell = state.localShell
+		}
+		conn := newLocalConn(shell)
 		conn.dir = localStartupDirectory(session.localDirectory, conn.shell)
 		session.conn = conn
 		state.finishStartingConnection(session, automatic)
@@ -576,6 +580,8 @@ func (state *State) finishStartingConnection(session *Session, automatic bool) {
 		session.term = newTerminalWithScrollback(geometry.cols, geometry.rows, state.terminalScrollback)
 		state.configureTerminal(session)
 	} else {
+		// A reconnect invalidates any list built from the old prompt.
+		state.closeCompletionList()
 		t := session.term
 		t.shell, t.ended, t.live, t.inputSent, t.told = nil, false, false, false, toldNothing
 		t.resetFolderSync()
@@ -594,6 +600,8 @@ func (state *State) finishStartingConnection(session *Session, automatic bool) {
 // nothing for sessions whose status is unchanged and whose shell is quiet.
 func (state *State) Wake() {
 	defer state.flushLocalDirectories()
+	state.adoptHistoryClear()
+	state.adoptCompletion()
 	state.pumpFileWindows()
 	if state.syncPending {
 		state.syncPending = false

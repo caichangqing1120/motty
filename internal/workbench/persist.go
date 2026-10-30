@@ -92,15 +92,16 @@ type savedState struct {
 	CommandSuggestOff          bool                `json:"command_suggest_off,omitempty"`
 	// SessionLogsOff stops the local session journal. Unset means capture is on;
 	// it belongs to this computer and is never synced.
-	SessionLogsOff     bool             `json:"session_logs_off,omitempty"`
-	ShortcutVersion    int              `json:"shortcut_version,omitempty"`
-	Shortcuts          []savedShortcut  `json:"shortcuts,omitempty"`
-	Workspace          string           `json:"workspace,omitempty"`
-	ActiveSession      int              `json:"active_session,omitempty"`
-	HostCatalogVersion int              `json:"host_catalog_version"`
-	Hosts              []savedHost      `json:"hosts"`
-	HostGroups         []savedHostGroup `json:"host_groups,omitempty"`
-	IdentityFiles      []string         `json:"identity_files,omitempty"`
+	SessionLogsOff             bool                `json:"session_logs_off,omitempty"`
+	CommandInlineSuggestOff    bool                `json:"command_inline_suggest_off,omitempty"`
+	ShortcutVersion            int                 `json:"shortcut_version,omitempty"`
+	Shortcuts                  []savedShortcut     `json:"shortcuts,omitempty"`
+	Workspace                  string              `json:"workspace,omitempty"`
+	ActiveSession              int                 `json:"active_session,omitempty"`
+	HostCatalogVersion         int                 `json:"host_catalog_version"`
+	Hosts                      []savedHost         `json:"hosts"`
+	HostGroups                 []savedHostGroup    `json:"host_groups,omitempty"`
+	IdentityFiles              []string            `json:"identity_files,omitempty"`
 	// AgentHosts are the catalog ids of the hosts an agent may use without a
 	// window. It belongs to this computer, not to the hosts that sync, so a host
 	// that arrives from another device starts out closed to agents.
@@ -202,6 +203,8 @@ type savedSession struct {
 	// Local marks a shell on this computer: it has no address to dial.
 	Local          bool   `json:"local,omitempty"`
 	LocalDirectory string `json:"local_directory,omitempty"`
+	// LocalShell is the shell this local tab was opened with; empty follows the default.
+	LocalShell string `json:"local_shell,omitempty"`
 	savedTransport
 }
 
@@ -391,6 +394,7 @@ func (state *State) snapshot() savedState {
 		CommandHistory:             state.history.on,
 		CommandSuggestOff:          state.history.suggestOff,
 		SessionLogsOff:             state.sessionLogsOff,
+		CommandInlineSuggestOff:    state.history.inlineOff,
 		SFTPParallel:               state.sftpParallel,
 		SFTPKeepTimes:              notifyString(state.sftpKeepTimesOff),
 		SFTPFollow:                 notifyString(state.sftpFollowOff),
@@ -502,7 +506,7 @@ func (state *State) snapshot() savedState {
 			continue
 		}
 		if session.isLocal() {
-			saved.Sessions = append(saved.Sessions, savedSession{Label: session.Title, Local: true, LocalDirectory: session.localDirectory})
+			saved.Sessions = append(saved.Sessions, savedSession{Label: session.Title, Local: true, LocalDirectory: session.localDirectory, LocalShell: session.host.localShell})
 			if session.ID == state.activeSessionID {
 				saved.ActiveSession = len(saved.Sessions)
 			}
@@ -675,6 +679,7 @@ func (state *State) restoreShared(saved savedState) {
 	state.pasteImageOff = saved.TerminalPasteImage == "off"
 	state.history.on = saved.CommandHistory
 	state.history.suggestOff = saved.CommandSuggestOff
+	state.history.inlineOff = saved.CommandInlineSuggestOff
 	state.restoreSFTPSettings(saved)
 	state.proxy = decodeOutboundProxy(saved.OutboundProxy)
 	state.restoreTerminalTools(saved)
@@ -844,7 +849,11 @@ func (state *State) restoreSessions(entries []savedSession, active int) []uint32
 
 func (state *State) restoreSessionHost(entry savedSession) (Host, bool) {
 	if entry.Local {
-		return localHost(state.messages.LocalTerminalTitle), true
+		host := localHost(state.messages.LocalTerminalTitle)
+		if validLocalShell(entry.LocalShell) {
+			host.localShell = entry.LocalShell
+		}
+		return host, true
 	}
 	if entry.Address == "" {
 		return Host{}, false

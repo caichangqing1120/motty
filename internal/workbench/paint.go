@@ -317,6 +317,7 @@ func (state *State) Paint(canvas *ui.Canvas, size ui.Size) {
 	state.paintTabDrag(canvas, viewport)
 	state.paintTabMenu(canvas, viewport)
 	state.paintHostMenu(canvas, viewport)
+	state.paintLocalShellPicker(canvas, viewport)
 	state.paintSnippetMenu(canvas, viewport)
 	state.paintSFTPMenu(canvas, viewport)
 	state.paintHostMenus(canvas, viewport)
@@ -558,6 +559,11 @@ func (state *State) declareWindowBar(f *flex.Frame, bar *windowBar, probe, pictu
 					bar.assistant = f.Slot().Size(barButtonSize, barButtonSize)
 				case hitTheme:
 					state.barButton(f, probe, spec.id, themeIcon, themeLabel)
+				case hitWindowLocalTerminal:
+					state.barButton(f, probe, spec.id, spec.icon, state.toolbarLabel(spec.id))
+					if !probe {
+						state.openLocalShellPickerOn(f.Canvas(), spec.id, false)
+					}
 				default:
 					state.barButton(f, probe, spec.id, spec.icon, state.toolbarLabel(spec.id))
 				}
@@ -669,6 +675,9 @@ type chromeLayout struct {
 	lockup flex.Box
 	// newTabBadges are the places of the systems' badges on the new-tab page.
 	newTabBadges []flex.Box
+	// newTabShells is the arrow beside the Local Terminal row that opens the
+	// shell menu, kept to place that menu under it.
+	newTabShells flex.Box
 	// hostList is the hosts list: where the wheel is aimed.
 	hostList ui.Rect
 }
@@ -704,6 +713,7 @@ func (state *State) declareNavigation(f *flex.Frame) {
 		// the component gallery there (see declareDevNavigation).
 		f.Spacer()
 		state.navigationItem(f, hitLocalTerminal, iconTerminal, m.LocalTerminal, false, 4)
+		state.openLocalShellPickerOn(f.Canvas(), hitLocalTerminal, false)
 		state.devDeclareNavigation(f)
 		state.navigationItem(f, hitSettings, iconSettings, m.NavSettings, state.activeSection == sectionSettings, 16)
 	})

@@ -49,6 +49,8 @@ type Messages struct {
 	History HistoryMessages
 	// SessionLogs holds the local session-log page's texts; see session_logs.go.
 	SessionLogs SessionLogsMessages
+	// Completion holds the command completion's texts; see completion.go.
+	Completion CompletionMessages
 	// SSHSync holds the texts of the sync with the OpenSSH config; see ssh_sync.go.
 	SSHSync SSHSyncMessages
 	// Desktop holds the remote-desktop tabs' texts; see desktop.go.
@@ -133,6 +135,8 @@ type Messages struct {
 	SettingsLocalShell                     string
 	SettingsLocalShellDescription          string
 	SettingsLocalShellEmpty                string
+	LocalShellDefault                      string
+	LocalShellChoose                       string
 	SettingsTerminalFontSize               string
 	SettingsTerminalFontSizeDescription    string
 	SettingsTerminalFontFamily             string
@@ -796,6 +800,7 @@ func For(language Language) Messages {
 		messages.Toolbars = chineseToolbars
 		messages.Autofill = chineseAutofill
 		messages.History = chineseHistory
+		messages.Completion = chineseCompletion
 		messages.SSHSync = chineseSSHSync
 		messages.Desktop = chineseDesktop
 		messages.About = chineseAbout
@@ -806,6 +811,7 @@ func For(language Language) Messages {
 		messages.Toolbars = englishToolbars
 		messages.Autofill = englishAutofill
 		messages.History = englishHistory
+		messages.Completion = englishCompletion
 		messages.SSHSync = englishSSHSync
 		messages.Desktop = englishDesktop
 		messages.About = englishAbout
