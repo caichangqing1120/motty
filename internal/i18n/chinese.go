@@ -812,9 +812,10 @@ var chineseAIPanel = AIPanelMessages{
 	AttachEmptyFmt:       "%s 是空文件。",
 	AttachTextTooBigFmt:  "%s 超过 %s,这是助手一次可接收的文本文件上限。",
 	AttachTooLargeFmt:    "%s 太大,无法添加。",
-	AttachUnsupportedFmt: "%s 既不是文本文件,也不是 PNG、JPEG、GIF、WebP、BMP 或 TIFF 图片。",
+	AttachUnsupportedFmt: "%s 不是文本文件、Word/Excel/PowerPoint 文档(.docx、.xlsx、.pptx)或 PNG、JPEG、GIF、WebP、BMP、TIFF 图片。",
 	AttachTotalTextFmt:   "添加 %s 后,一条消息的附件文本会超过 %s。",
 	AttachFailedFmt:      "无法读取 %s:%s",
+	PastedImageName:      "粘贴的图片",
 
 	EmptyTitle:     "就这个终端提问",
 	EmptyHint:      "助手能看到屏幕上的内容;在代理模式下,它还可以替你执行命令。",
