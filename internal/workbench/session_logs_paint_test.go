@@ -228,6 +228,39 @@ func TestSessionLogsVisiblePageRefreshesAfterLifecycleWrite(t *testing.T) {
 	}
 }
 
+// A write settles in drainAI, after Wake has already run pumpSessionLogs, so it
+// must ask for the repaint that shows its result: without it the page keeps the
+// row the write changed until something else happens to wake the window.
+func TestSessionLogWriteWakesThePageThatShowsIt(t *testing.T) {
+	state := sessionLogsState(t, true)
+	state.selectSessionLogRecord("log-00")
+	sessionLogsWait(t, state)
+	wakes := 0
+	state.options.Invalidate = func() { wakes++ }
+	state.sessionLogWriteSettled(sessionlog.Operation{Kind: sessionlog.OpSetFavorite, ID: "log-00", Favorite: true}, nil)
+	if !state.sessionLogs.view.dirty {
+		t.Fatal("the settled write did not mark the page for a refresh")
+	}
+	if wakes == 0 {
+		t.Fatal("the settled write did not wake the page that shows it")
+	}
+}
+
+// A record deleted between the click and the write is gone, not broken: the page
+// refreshes to what the store has instead of claiming the write failed.
+func TestSessionLogWriteOfADeletedRecordIsNotAFailure(t *testing.T) {
+	state := sessionLogsState(t, true)
+	state.selectSessionLogRecord("log-00")
+	sessionLogsWait(t, state)
+	state.sessionLogWriteSettled(sessionlog.Operation{Kind: sessionlog.OpDelete, ID: "log-00"}, sessionlog.ErrNotFound)
+	if state.sessionLogs.view.statusDanger {
+		t.Fatal("a record deleted before its write settled was reported as a write failure")
+	}
+	if state.sessionLogs.view.statusText == state.messages.SessionLogs.WriteFailed {
+		t.Fatal("a deleted record still reads as a failed write")
+	}
+}
+
 func TestSessionLogsFailedFavoriteDoesNotClaimSuccess(t *testing.T) {
 	state := sessionLogsState(t, true)
 	state.selectSessionLogRecord("log-00")

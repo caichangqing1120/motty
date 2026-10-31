@@ -216,58 +216,70 @@ func (state *State) submitSessionLog(operation sessionlog.Operation) {
 	go func() {
 		err := <-ack
 		state.aiPostWithInvalidator(func(state *State) {
-			view := &state.sessionLogs.view
-			if operation.Kind == sessionlog.OpSetFavorite && view.favoritePending == operation.ID {
-				view.favoritePending = ""
-			}
-			if err != nil {
-				state.reportSessionLogProblem("write", err)
-				view.statusText = state.messages.SessionLogs.WriteFailed
-				view.statusDanger = true
-			} else {
-				switch operation.Kind {
-				case sessionlog.OpSetFavorite:
-					view.statusDanger = false
-					if operation.Favorite {
-						view.statusText = state.messages.SessionLogs.FavoritedStatus
-					} else {
-						view.statusText = state.messages.SessionLogs.UnfavoritedStatus
-					}
-				case sessionlog.OpDelete:
-					view.statusDanger = false
-					view.statusText = state.messages.SessionLogs.Deleted
-					if view.selected == operation.ID {
-						index := -1
-						for i := range view.rows {
-							if view.rows[i].ID == operation.ID {
-								index = i
-								break
-							}
-						}
-						view.selected = ""
-						view.focusPending = hitSessionLogsSearch
-						if index >= 0 && len(view.rows) > 1 {
-							next := min(index, len(view.rows)-2)
-							if next == index {
-								view.selected = view.rows[index+1].ID
-							} else {
-								view.selected = view.rows[next].ID
-							}
-							view.focusPending = hitSessionLogsRowList.At(next)
-						}
-						view.detailOpen = false
-						view.events = nil
-						view.eventsFor = ""
-						view.eventsLoad = false
-					}
-				}
-			}
-			state.sessionLogs.settings.requested = false
-			if state.activeSection == sectionSessionLogs {
-				state.sessionLogs.view.dirty = true
-			}
+			state.sessionLogWriteSettled(operation, err)
 		}, invalidate)
 	}()
+}
+
+// sessionLogWriteSettled turns the writer's answer into the page's state: the
+// status line, the row the write changed, and the repaint that shows them. It
+// runs from drainAI, and Wake runs pumpSessionLogs before drainAI, so the refresh
+// it asks for is a repaint of its own: without it a visible page would keep
+// showing the old row until some other event happened to wake the window.
+func (state *State) sessionLogWriteSettled(operation sessionlog.Operation, err error) {
+	view := &state.sessionLogs.view
+	if operation.Kind == sessionlog.OpSetFavorite && view.favoritePending == operation.ID {
+		view.favoritePending = ""
+	}
+	// A record deleted between the click and the write is gone, not broken: the
+	// page's next query shows what the store has, so it is not a write failure.
+	if err != nil && !errors.Is(err, sessionlog.ErrNotFound) {
+		state.reportSessionLogProblem("write", err)
+		view.statusText = state.messages.SessionLogs.WriteFailed
+		view.statusDanger = true
+	} else {
+		switch operation.Kind {
+		case sessionlog.OpSetFavorite:
+			view.statusDanger = false
+			if operation.Favorite {
+				view.statusText = state.messages.SessionLogs.FavoritedStatus
+			} else {
+				view.statusText = state.messages.SessionLogs.UnfavoritedStatus
+			}
+		case sessionlog.OpDelete:
+			view.statusDanger = false
+			view.statusText = state.messages.SessionLogs.Deleted
+			if view.selected == operation.ID {
+				index := -1
+				for i := range view.rows {
+					if view.rows[i].ID == operation.ID {
+						index = i
+						break
+					}
+				}
+				view.selected = ""
+				view.focusPending = hitSessionLogsSearch
+				if index >= 0 && len(view.rows) > 1 {
+					next := min(index, len(view.rows)-2)
+					if next == index {
+						view.selected = view.rows[index+1].ID
+					} else {
+						view.selected = view.rows[next].ID
+					}
+					view.focusPending = hitSessionLogsRowList.At(next)
+				}
+				view.detailOpen = false
+				view.events = nil
+				view.eventsFor = ""
+				view.eventsLoad = false
+			}
+		}
+	}
+	state.sessionLogs.settings.requested = false
+	if state.activeSection == sectionSessionLogs {
+		state.sessionLogs.view.dirty = true
+		state.invalidateWindow()
+	}
 }
 
 // startSessionLog opens a row for a user-dialed session. A manual redial is a
